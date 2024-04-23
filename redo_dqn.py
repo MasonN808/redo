@@ -18,6 +18,8 @@ from src.config import Config
 from src.redo import run_redo
 from src.utils import lecun_normal_initializer, make_env, set_cuda_configuration
 
+# Enables WandB cloud syncing
+os.environ["WANDB_API_KEY"] = '9762ecfe45a25eda27bb421e664afe503bb42297'
 
 def dqn_loss(
     q_network: QNetwork,
