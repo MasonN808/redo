@@ -13,6 +13,9 @@ from .wrappers import (
     NoopResetEnv,
 )
 
+ATARI_ENVS = [
+    # TODO: Fill this
+]
 
 def make_env(env_id, seed, idx, capture_video, run_name):
     """Helper function to create an environment with some standard wrappers.
@@ -26,16 +29,18 @@ def make_env(env_id, seed, idx, capture_video, run_name):
             env = gym.wrappers.RecordVideo(env, f"videos/{run_name}")
         else:
             env = gym.make(env_id)
-        env = gym.wrappers.RecordEpisodeStatistics(env)
-        env = NoopResetEnv(env, noop_max=30)
-        env = MaxAndSkipEnv(env, skip=4)
-        env = EpisodicLifeEnv(env)
-        if "FIRE" in env.unwrapped.get_action_meanings():
-            env = FireResetEnv(env)
-        env = ClipRewardEnv(env)
-        env = gym.wrappers.ResizeObservation(env, (84, 84))
-        env = gym.wrappers.GrayScaleObservation(env)
-        env = gym.wrappers.FrameStack(env, 4)
+
+        if env_id in ATARI_ENVS:
+            env = gym.wrappers.RecordEpisodeStatistics(env)
+            env = NoopResetEnv(env, noop_max=30)
+            env = MaxAndSkipEnv(env, skip=4)
+            env = EpisodicLifeEnv(env)
+            if "FIRE" in env.unwrapped.get_action_meanings():
+                env = FireResetEnv(env)
+            env = ClipRewardEnv(env)
+            env = gym.wrappers.ResizeObservation(env, (84, 84))
+            env = gym.wrappers.GrayScaleObservation(env)
+            env = gym.wrappers.FrameStack(env, 4)
         env.action_space.seed(seed)
 
         return env
