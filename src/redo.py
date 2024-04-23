@@ -8,10 +8,11 @@ from torch import optim
 
 from .agent import QNetwork
 from .buffer import ReplayBufferSamples
+from typing import Union
 
 
 @torch.no_grad()
-def _kaiming_uniform_reinit(layer: nn.Linear | nn.Conv2d, mask: torch.Tensor) -> None:
+def _kaiming_uniform_reinit(layer: Union[nn.Linear, nn.Conv2d], mask: torch.Tensor) -> None:
     """Partially re-initializes the bias of a layer according to the Kaiming uniform scheme."""
 
     # This is adapted from https://pytorch.org/docs/stable/_modules/torch/nn/init.html#kaiming_uniform_
@@ -35,7 +36,7 @@ def _kaiming_uniform_reinit(layer: nn.Linear | nn.Conv2d, mask: torch.Tensor) ->
 
 
 @torch.no_grad()
-def _lecun_normal_reinit(layer: nn.Linear | nn.Conv2d, mask: torch.Tensor) -> None:
+def _lecun_normal_reinit(layer: Union[nn.Linear, nn.Conv2d], mask: torch.Tensor) -> None:
     """Partially re-initializes the bias of a layer according to the Lecun normal scheme."""
 
     fan_in, _ = nn.init._calculate_fan_in_and_fan_out(layer.weight)

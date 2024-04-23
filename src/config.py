@@ -1,5 +1,6 @@
 from dataclasses import dataclass
-
+from typing import Union, Tuple, Optional # Only needed in Python < 3.10
+ 
 
 @dataclass
 class ConfigDQN:
@@ -7,13 +8,13 @@ class ConfigDQN:
 
     # Experiment settings
     exp_name: str = "ReDo DQN"
-    tags: tuple[str, ...] | str | None = None
+    tags: Union[Tuple[str, ...], str, None] = None
     seed: int = 0
     torch_deterministic: bool = True
-    gpu: int | None = 0
+    gpu: Optional[int] = 0
     track: bool = False
     wandb_project_name: str = "ReDo"
-    wandb_entity: str | None = None
+    wandb_entity: Optional[str] = "mason-nakamura1"
     capture_video: bool = False
     save_model: bool = False
 
@@ -49,13 +50,13 @@ class ConfigLunar:
 
     # Experiment settings
     exp_name: str = "ReDo DQN LunarLander"
-    tags: tuple[str, ...] | str | None = None
+    tags: Union[Tuple[str, ...], str, None] = None
     seed: int = 0
     torch_deterministic: bool = True
-    gpu: int | None = 0
+    gpu: Optional[int] = 0
     track: bool = True
     wandb_project_name: str = "ReDo"
-    wandb_entity: str | None = "mason-nakamura1"
+    wandb_entity: Optional[str] = "mason-nakamura1"
     capture_video: bool = True
     save_model: bool = False
 
