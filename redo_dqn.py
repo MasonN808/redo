@@ -12,9 +12,9 @@ import torch.optim as optim
 import tyro
 import wandb
 
-from src.agent import QNetwork, linear_schedule
+from src.agent import QNetworkBase, linear_schedule
 from src.buffer import ReplayBuffer
-from src.config import Config
+from src.config import ConfigLunar
 from src.redo import run_redo
 from src.utils import lecun_normal_initializer, make_env, set_cuda_configuration
 
@@ -22,8 +22,8 @@ from src.utils import lecun_normal_initializer, make_env, set_cuda_configuration
 os.environ["WANDB_API_KEY"] = '9762ecfe45a25eda27bb421e664afe503bb42297'
 
 def dqn_loss(
-    q_network: QNetwork,
-    target_network: QNetwork,
+    q_network: QNetworkBase,
+    target_network: QNetworkBase,
     obs: torch.Tensor,
     next_obs: torch.Tensor,
     actions: torch.Tensor,
@@ -45,7 +45,7 @@ def dqn_loss(
     return F.mse_loss(td_target, old_val), old_val
 
 
-def main(cfg: Config) -> None:
+def main(cfg: ConfigLunar) -> None:
     """Main training method for ReDO DQN."""
     run_name = f"{cfg.env_id}__{cfg.exp_name}__{cfg.seed}__{int(time.time())}"
 
@@ -231,5 +231,5 @@ def main(cfg: Config) -> None:
 
 
 if __name__ == "__main__":
-    cfg = tyro.cli(Config)
+    cfg = tyro.cli(ConfigLunar)
     main(cfg)
