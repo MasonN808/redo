@@ -3,25 +3,25 @@ from typing import Union, Tuple, Optional # Only needed in Python < 3.10
 from src.agent import QNetworkBase, QNetworkNature
 
 @dataclass
-class ConfigDQN:
+class ConfigDemon:
     """Configuration for a ReDo DQN agent."""
 
     # Experiment settings
-    exp_name: str = "ReDo DQN"
+    exp_name: str = "ReDo DQN DemonAttack"
     tags: Union[Tuple[str, ...], str, None] = None
     seed: int = 0
     torch_deterministic: bool = True
     gpu: Optional[int] = 0
-    track: bool = False
+    track: bool = True
     wandb_project_name: str = "ReDo"
     wandb_entity: Optional[str] = "mason-nakamura1"
-    wandb_notes: str = ""
-    wandb_group: str = "",
-    capture_video: bool = False
+    wandb_notes: str = "DemonAttack v5 on 5 seeds with NatureCNN"
+    wandb_group: str = "DemonAttack"
+    capture_video: bool = True
     save_model: bool = False
 
     # Environment settings
-    env_id: str = "DemonAttackNoFrameskip-v4"
+    env_id: str = "ALE/DemonAttack-v5"
     total_timesteps: int = 10_000_000
     num_envs: int = 1
 
@@ -60,8 +60,8 @@ class ConfigLunar:
     track: bool = True
     wandb_project_name: str = "ReDo"
     wandb_entity: Optional[str] = "mason-nakamura1"
-    wandb_notes: str = "Testing "
-    wandb_group: str = "",
+    wandb_notes: str = "Testing"
+    wandb_group: str = ""
     capture_video: bool = True
     save_model: bool = False
 
