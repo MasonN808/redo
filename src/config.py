@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from typing import Union, Tuple, Optional # Only needed in Python < 3.10
- 
+from src.agent import QNetworkBase, QNetworkNature
 
 @dataclass
 class ConfigDQN:
@@ -15,6 +15,8 @@ class ConfigDQN:
     track: bool = False
     wandb_project_name: str = "ReDo"
     wandb_entity: Optional[str] = "mason-nakamura1"
+    wandb_notes: str = ""
+    wandb_group: str = "",
     capture_video: bool = False
     save_model: bool = False
 
@@ -24,6 +26,7 @@ class ConfigDQN:
     num_envs: int = 1
 
     # DQN settings
+    QNetwork: Union[QNetworkBase, QNetworkNature] = QNetworkNature
     buffer_size: int = 1_000_000
     batch_size: int = 32
     learning_rate: float = 6.25 * 1e-5  # cleanRL default: 1e-4, theirs: 6.25 * 1e-5
@@ -57,6 +60,8 @@ class ConfigLunar:
     track: bool = True
     wandb_project_name: str = "ReDo"
     wandb_entity: Optional[str] = "mason-nakamura1"
+    wandb_notes: str = "Testing "
+    wandb_group: str = "",
     capture_video: bool = True
     save_model: bool = False
 
@@ -66,6 +71,7 @@ class ConfigLunar:
     num_envs: int = 1
 
     # DQN settings
+    QNetwork: Union[QNetworkBase, QNetworkNature] = QNetworkBase
     buffer_size: int = 1_000_000
     batch_size: int = 32
     learning_rate: float = 6.25 * 1e-5  # cleanRL default: 1e-4, theirs: 6.25 * 1e-5
