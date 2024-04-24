@@ -14,6 +14,8 @@ from .wrappers import (
 )
 
 ATARI_ENVS = [
+    "ALE/DemonAttack-v5",
+    "ALE/Asterix-v5"
     # TODO: Fill this
 ]
 
