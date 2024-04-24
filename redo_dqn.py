@@ -14,7 +14,7 @@ import wandb
 
 from src.agent import linear_schedule
 from src.buffer import ReplayBuffer
-from src.config import ConfigLunar
+from src.config import ConfigLunar, ConfigDemon
 from src.redo import run_redo
 from src.utils import lecun_normal_initializer, make_env, set_cuda_configuration
 
@@ -233,5 +233,5 @@ def main(cfg: ConfigLunar) -> None:
 
 
 if __name__ == "__main__":
-    cfg = tyro.cli(ConfigLunar)
+    cfg = tyro.cli(ConfigDemon)
     main(cfg)
