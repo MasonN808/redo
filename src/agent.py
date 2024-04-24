@@ -5,6 +5,7 @@ import torch.nn.functional as F
 
 class QNetwork(nn.Module):
     """Base class for different QNetwork configurations."""
+
     def __init__(self, env):
         super().__init__()
         self.n_actions = int(env.single_action_space.n)
