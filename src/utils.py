@@ -31,7 +31,6 @@ def make_env(env_id, seed, idx, capture_video, run_name):
             env = gym.make(env_id)
 
         if env_id in ATARI_ENVS:
-            env = gym.wrappers.RecordEpisodeStatistics(env)
             env = NoopResetEnv(env, noop_max=30)
             env = MaxAndSkipEnv(env, skip=4)
             env = EpisodicLifeEnv(env)
@@ -41,6 +40,7 @@ def make_env(env_id, seed, idx, capture_video, run_name):
             env = gym.wrappers.ResizeObservation(env, (84, 84))
             env = gym.wrappers.GrayScaleObservation(env)
             env = gym.wrappers.FrameStack(env, 4)
+        env = gym.wrappers.RecordEpisodeStatistics(env)
         env.action_space.seed(seed)
 
         return env
