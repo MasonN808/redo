@@ -12,7 +12,7 @@ import torch.optim as optim
 import tyro
 import wandb
 
-from src.agent import QNetworkBase, linear_schedule
+from src.agent import linear_schedule
 from src.buffer import ReplayBuffer
 from src.config import ConfigLunar
 from src.redo import run_redo
@@ -21,39 +21,41 @@ from src.utils import lecun_normal_initializer, make_env, set_cuda_configuration
 # Enables WandB cloud syncing
 os.environ["WANDB_API_KEY"] = '9762ecfe45a25eda27bb421e664afe503bb42297'
 
-def dqn_loss(
-    q_network: QNetworkBase,
-    target_network: QNetworkBase,
-    obs: torch.Tensor,
-    next_obs: torch.Tensor,
-    actions: torch.Tensor,
-    rewards: torch.Tensor,
-    dones: torch.Tensor,
-    gamma: float,
-) -> tuple[torch.Tensor, torch.Tensor]:
-    """Compute the double DQN loss."""
-    with torch.no_grad():
-        # Get value estimates from the target network
-        target_vals = target_network.forward(next_obs)
-        # Select actions through the policy network
-        policy_actions = q_network(next_obs).argmax(dim=1)
-        target_max = target_vals[range(len(target_vals)), policy_actions]
-        # Calculate Q-target
-        td_target = rewards.flatten() + gamma * target_max * (1 - dones.flatten())
-
-    old_val = q_network(obs).gather(1, actions).squeeze()
-    return F.mse_loss(td_target, old_val), old_val
-
 
 def main(cfg: ConfigLunar) -> None:
+    def dqn_loss(
+        q_network: cfg.QNetwork,
+        target_network: cfg.QNetwork,
+        obs: torch.Tensor,
+        next_obs: torch.Tensor,
+        actions: torch.Tensor,
+        rewards: torch.Tensor,
+        dones: torch.Tensor,
+        gamma: float,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Compute the double DQN loss."""
+        with torch.no_grad():
+            # Get value estimates from the target network
+            target_vals = target_network.forward(next_obs)
+            # Select actions through the policy network
+            policy_actions = q_network(next_obs).argmax(dim=1)
+            target_max = target_vals[range(len(target_vals)), policy_actions]
+            # Calculate Q-target
+            td_target = rewards.flatten() + gamma * target_max * (1 - dones.flatten())
+
+        old_val = q_network(obs).gather(1, actions).squeeze()
+        return F.mse_loss(td_target, old_val), old_val
+
     """Main training method for ReDO DQN."""
     run_name = f"{cfg.env_id}__{cfg.exp_name}__{cfg.seed}__{int(time.time())}"
 
     wandb.init(
         project=cfg.wandb_project_name,
         entity=cfg.wandb_entity,
+        group=cfg.wandb_group,
         config=vars(cfg),
         name=run_name,
+        notes=cfg.wandb_notes,
         monitor_gym=True,
         save_code=True,
         mode="online" if cfg.track else "disabled",
@@ -83,12 +85,12 @@ def main(cfg: ConfigLunar) -> None:
     )
     assert isinstance(envs.single_action_space, gym.spaces.Discrete), "only discrete action space is supported"
 
-    q_network = QNetwork(envs).to(device)
+    q_network = cfg.QNetwork(envs).to(device)
     if cfg.use_lecun_init:
         # Use the same initialization scheme as jax/flax
         q_network.apply(lecun_normal_initializer)
     optimizer = optim.Adam(q_network.parameters(), lr=cfg.learning_rate, eps=cfg.adam_eps)
-    target_network = QNetwork(envs).to(device)
+    target_network = cfg.QNetwork(envs).to(device)
     target_network.load_state_dict(q_network.state_dict())
 
     rb = ReplayBuffer(
@@ -217,7 +219,7 @@ def main(cfg: ConfigLunar) -> None:
             env_id=cfg.env_id,
             eval_episodes=10,
             run_name=f"{run_name}-eval",
-            Model=QNetwork,
+            Model=cfg.QNetwork,
             device=device,
             epsilon=0.05,
             capture_video=False,
