@@ -55,7 +55,7 @@ def _lecun_normal_reinit(layer: Union[nn.Linear, nn.Conv2d], mask: torch.Tensor)
 def _get_activation(name: str, activations: dict[str, torch.Tensor]):
     """Fetches and stores the activations of a network layer."""
 
-    def hook(layer: nn.Linear | nn.Conv2d, input: tuple[torch.Tensor], output: torch.Tensor) -> None:
+    def hook(layer: Union[nn.Linear, nn.Conv2d], input: tuple[torch.Tensor], output: torch.Tensor) -> None:
         """
         Get the activations of a layer with relu nonlinearity.
         ReLU has to be called explicitly here because the hook is attached to the conv/linear layer.
