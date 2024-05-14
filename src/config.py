@@ -20,6 +20,9 @@ class ConfigDemon:
     capture_video: bool = True
     save_model: bool = False
 
+    # Buffer settings
+    use_per: bool = False
+
     # Environment settings
     env_id: str = "ALE/DemonAttack-v5"
     total_timesteps: int = 30_000_000
@@ -65,6 +68,9 @@ class ConfigLunar:
     capture_video: bool = True
     save_model: bool = False
 
+    # Buffer settings
+    use_per: bool = True
+
     # Environment settings
     env_id: str = "LunarLander-v2"
     total_timesteps: int = 10_000_000
@@ -109,6 +115,9 @@ class ConfigLunarKAN:
     wandb_group: str = ""
     capture_video: bool = True
     save_model: bool = False
+
+    # Buffer settings
+    use_per: bool = False
 
     # Environment settings
     env_id: str = "LunarLander-v2"
