@@ -4,7 +4,6 @@ https://github.com/DLR-RM/stable-baselines3/blob/master/stable_baselines3/common
 
 I've removed unneeded functionality and put all dependencies into a single file.
 """
-
 import random
 import warnings
 from abc import ABC, abstractmethod
@@ -14,7 +13,7 @@ import numpy as np
 import psutil
 import torch
 from gymnasium import spaces
-from tree import SumTree
+from src.tree import SumTree
 
 
 class ReplayBufferSamples(NamedTuple):
@@ -522,7 +521,7 @@ class PrioritzedExperienceReplayBuffer(BaseBuffer):
 
 # Adapted from https://github.com/Howuhh/prioritized_experience_replay/blob/main/memory/tree.py
 
-class PrioritizedReplayBuffer:
+class PrioritizedReplayBuffer(BaseBuffer):
     def __init__(self,
         buffer_size: int,
         observation_space: spaces.Space,
@@ -577,7 +576,7 @@ class PrioritizedReplayBuffer:
         self.timeouts = np.zeros((self.buffer_size, self.n_envs), dtype=np.float32)
 
         # self.count = 0
-        # self.real_size = 0
+        self.real_size = 0
         # self.size = buffer_size
 
         if psutil is not None:
@@ -637,8 +636,7 @@ class PrioritizedReplayBuffer:
             self.pos = 0
 
         # update counters
-        # self.count = (self.count + 1) % self.buffer_size
-        # self.real_size = min(self.buffer_size, self.real_size + 1)
+        self.real_size = min(self.buffer_size, self.real_size + 1)
 
     def sample(self, batch_size: int) -> ReplayBufferSamples:
         if not self.optimize_memory_usage:
@@ -691,14 +689,6 @@ class PrioritizedReplayBuffer:
         # within a reasonable range, avoiding the possibility of extremely large updates. (Appendix B.2.1, Proportional prioritization)
         weights = weights / weights.max()
 
-        # batch = (
-        #     self.state[sample_idxs].to(device()),
-        #     self.action[sample_idxs].to(device()),
-        #     self.reward[sample_idxs].to(device()),
-        #     self.next_state[sample_idxs].to(device()),
-        #     self.done[sample_idxs].to(device())
-        # )
-
         # Sample randomly the env idx
         env_indices = np.random.randint(0, high=self.n_envs, size=(len(batch_inds),))
 
@@ -716,12 +706,7 @@ class PrioritizedReplayBuffer:
             (self.dones[sample_idxs, env_indices] * (1 - self.timeouts[batch_inds, env_indices])).reshape(-1, 1),
             self.rewards[sample_idxs, env_indices].reshape(-1, 1),
         )
-        return data, weights, tree_idxs
-    
-
-
-
-        return ReplayBufferSamples(*tuple(map(self.to_torch, data)))
+        return ReplayBufferSamples(*tuple(map(self.to_torch, data))), weights, tree_idxs
 
     def update_priorities(self, data_idxs, priorities):
         if isinstance(priorities, torch.Tensor):
