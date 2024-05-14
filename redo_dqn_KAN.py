@@ -85,6 +85,7 @@ def main(cfg: ConfigLunar) -> None:
     device = set_cuda_configuration(cfg.gpu)
     
     wrapped_envs = [make_env(cfg.env_id, cfg.seed + i, i, cfg.capture_video, run_name) for i in range(cfg.num_envs)]
+    dummy_env = gym.make(cfg.env_id)
 
     # env setup
     envs = gym.vector.SyncVectorEnv(wrapped_envs)
@@ -94,6 +95,11 @@ def main(cfg: ConfigLunar) -> None:
     if cfg.use_lecun_init:
         # Use the same initialization scheme as jax/flax
         q_network.apply(lecun_normal_initializer)
+    # TODO: Finish. This is utilizing keras but not sure if this will change the entire code base.
+    # q_network.model.build(input_shape=dummy_env.observation_space.shape)
+    # q_network.model.summary()
+
+    # TODO: Finish KAN implementation
     optimizer = optim.Adam(q_network.parameters(), lr=cfg.learning_rate, eps=cfg.adam_eps)
     target_network = cfg.QNetwork(envs).to(device)
     target_network.load_state_dict(q_network.state_dict())
@@ -210,6 +216,15 @@ def main(cfg: ConfigLunar) -> None:
                     target_network_param.data.copy_(
                         cfg.tau * q_network_param.data + (1.0 - cfg.tau) * target_network_param.data
                     )
+
+            # This is for KAN networks
+            # callback after each epoch
+            # call update_grid_from_samples method
+            # See https://github.com/ZPZhou-lab/tfkan?tab=readme-ov-file#how-to-use
+            for layer in q_network.model.layers:
+                if hasattr(layer, 'update_grid_from_samples'):
+                    layer.update_grid_from_samples(x_batch)
+                x_batch = layer(x_batch)
 
     if cfg.save_model:
         model_path = Path(f"runs/{run_name}/{cfg.exp_name}")

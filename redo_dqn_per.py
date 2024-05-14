@@ -94,6 +94,7 @@ def main(cfg: ConfigLunar) -> None:
     if cfg.use_lecun_init:
         # Use the same initialization scheme as jax/flax
         q_network.apply(lecun_normal_initializer)
+
     optimizer = optim.Adam(q_network.parameters(), lr=cfg.learning_rate, eps=cfg.adam_eps)
     target_network = cfg.QNetwork(envs).to(device)
     target_network.load_state_dict(q_network.state_dict())
