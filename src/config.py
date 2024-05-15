@@ -63,8 +63,8 @@ class ConfigLunar:
     track: bool = True
     wandb_project_name: str = "ReDo"
     wandb_entity: Optional[str] = "mason-nakamura1"
-    wandb_notes: str = "Testing"
-    wandb_group: str = ""
+    wandb_notes: str = "Running Lunar lander with PER to see if it changes dormant neurons"
+    wandb_group: str = "Lunarlander-PER"
     capture_video: bool = True
     save_model: bool = False
 
