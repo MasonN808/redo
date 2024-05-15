@@ -18,10 +18,6 @@ from src.config import ConfigLunar, ConfigDemon
 from src.redo import run_redo
 from src.utils import lecun_normal_initializer, make_env, set_cuda_configuration
 
-# KAN stuff
-import keras
-from src.config import ConfigLunarKAN
-
 # Enables WandB cloud syncing
 os.environ['WANDB_DISABLED'] = 'True'
 os.environ["WANDB_API_KEY"] = '9762ecfe45a25eda27bb421e664afe503bb42297'
