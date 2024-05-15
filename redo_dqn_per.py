@@ -18,15 +18,15 @@ from src.config import ConfigLunar, ConfigDemon
 from src.redo import run_redo
 from src.utils import lecun_normal_initializer, make_env, set_cuda_configuration
 
-# KAN stuff
-import keras
-from src.config import ConfigLunarKAN
-
 # Enables WandB cloud syncing
-os.environ['WANDB_DISABLED'] = 'True'
+os.environ['WANDB_DISABLED'] = 'False'
 os.environ["WANDB_API_KEY"] = '9762ecfe45a25eda27bb421e664afe503bb42297'
 
-
+# print(torch.cuda.is_available())
+# print(torch.cuda.device_count())
+# print(torch.cuda.current_device())
+# print(torch.cuda.get_device_name(0))
+# exit()
 def main(cfg: ConfigLunar) -> None:
     def dqn_loss(
         q_network: cfg.QNetwork,
@@ -37,7 +37,8 @@ def main(cfg: ConfigLunar) -> None:
         rewards: torch.Tensor,
         dones: torch.Tensor,
         gamma: float,
-        weights: torch.Tensor=None
+        device: str,
+        weights: torch.Tensor=None,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Compute the double DQN loss."""
         with torch.no_grad():
@@ -53,7 +54,11 @@ def main(cfg: ConfigLunar) -> None:
         old_val = q_network(obs).gather(1, actions).squeeze()
         # For prioritized experience replay buffer
         td_error = torch.abs(old_val - td_target).detach()
-        if weights:
+        # Don't know where else to put this
+        # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        td_error = td_error.to(device)
+
+        if weights != None:
             # Weights are used when using PER for correcting bias (see https://github.com/Howuhh/prioritized_experience_replay/blob/main/memory/buffer.py)
             mse_loss = torch.mean((old_val - td_target)**2 * weights)
         else:
@@ -92,7 +97,6 @@ def main(cfg: ConfigLunar) -> None:
     torch.set_float32_matmul_precision("high")
 
     device = set_cuda_configuration(cfg.gpu)
-    
     wrapped_envs = [make_env(cfg.env_id, cfg.seed + i, i, cfg.capture_video, run_name) for i in range(cfg.num_envs)]
 
     # env setup
@@ -185,9 +189,11 @@ def main(cfg: ConfigLunar) -> None:
                         rewards=data.rewards,
                         dones=data.dones,
                         gamma=cfg.gamma,
+                        device=device
                     )
                 elif isinstance(rb, PrioritizedReplayBuffer):
                     data, weights, tree_idxs = rb.sample(cfg.batch_size)
+                    weights = weights.to(device)
                     loss, old_val, td_error = dqn_loss(
                         q_network=q_network,
                         target_network=target_network,
@@ -197,6 +203,7 @@ def main(cfg: ConfigLunar) -> None:
                         rewards=data.rewards,
                         dones=data.dones,
                         gamma=cfg.gamma,
+                        device=device,
                         weights=weights,
                     )
                 else:
@@ -208,7 +215,8 @@ def main(cfg: ConfigLunar) -> None:
                 optimizer.step()
 
                 if isinstance(rb, PrioritizedReplayBuffer):
-                    rb.update_priorities(tree_idxs, td_error.numpy())
+                    # Move td_error to CPU before converting to NumPy array if using gpu
+                    rb.update_priorities(tree_idxs, td_error.cpu().numpy())
 
                 logs = {
                     "losses/td_loss": loss,
