@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from tfkan.layers import DenseKAN
-import tensorflow as tf
+# import tensorflow as tf
 
 class QNetwork(nn.Module):
     """Base class for different QNetwork configurations."""
