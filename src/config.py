@@ -63,13 +63,13 @@ class ConfigLunar:
     track: bool = True
     wandb_project_name: str = "ReDo"
     wandb_entity: Optional[str] = "mason-nakamura1"
-    wandb_notes: str = "Running Lunar lander with PER to see if it changes dormant neurons"
-    wandb_group: str = "Lunarlander-PER"
+    wandb_notes: str = "Running Lunar lander with ReDo method and base buffer"
+    wandb_group: str = "Lunarlander-ReDo"
     capture_video: bool = True
     save_model: bool = False
 
     # Buffer settings
-    use_per: bool = True
+    use_per: bool = False
 
     # Environment settings
     env_id: str = "LunarLander-v2"
@@ -93,7 +93,7 @@ class ConfigLunar:
     train_frequency: int = 4  # cleanRL default: 4, theirs 1
 
     # ReDo settings
-    enable_redo: bool = False
+    enable_redo: bool = True
     redo_tau: float = 0.025  # 0.025 for default, else 0.1
     redo_check_interval: int = 1000
     redo_bs: int = 64

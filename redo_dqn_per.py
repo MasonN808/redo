@@ -22,11 +22,6 @@ from src.utils import lecun_normal_initializer, make_env, set_cuda_configuration
 os.environ['WANDB_DISABLED'] = 'False'
 os.environ["WANDB_API_KEY"] = '9762ecfe45a25eda27bb421e664afe503bb42297'
 
-# print(torch.cuda.is_available())
-# print(torch.cuda.device_count())
-# print(torch.cuda.current_device())
-# print(torch.cuda.get_device_name(0))
-# exit()
 def main(cfg: ConfigLunar) -> None:
     def dqn_loss(
         q_network: cfg.QNetwork,

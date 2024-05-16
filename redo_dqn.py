@@ -13,15 +13,14 @@ import tyro
 import wandb
 
 from src.agent import linear_schedule
-from src.buffer import ReplayBuffer
+from src.buffer import ReplayBuffer, PrioritizedReplayBuffer
 from src.config import ConfigLunar, ConfigDemon
 from src.redo import run_redo
 from src.utils import lecun_normal_initializer, make_env, set_cuda_configuration
 
 # Enables WandB cloud syncing
-os.environ['WANDB_DISABLED'] = 'True'
+os.environ['WANDB_DISABLED'] = 'False'
 os.environ["WANDB_API_KEY"] = '9762ecfe45a25eda27bb421e664afe503bb42297'
-
 
 def main(cfg: ConfigLunar) -> None:
     def dqn_loss(
@@ -33,7 +32,9 @@ def main(cfg: ConfigLunar) -> None:
         rewards: torch.Tensor,
         dones: torch.Tensor,
         gamma: float,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
+        device: str,
+        weights: torch.Tensor=None,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Compute the double DQN loss."""
         with torch.no_grad():
             # Get value estimates from the target network
@@ -44,8 +45,20 @@ def main(cfg: ConfigLunar) -> None:
             # Calculate Q-target
             td_target = rewards.flatten() + gamma * target_max * (1 - dones.flatten())
 
+
         old_val = q_network(obs).gather(1, actions).squeeze()
-        return F.mse_loss(td_target, old_val), old_val
+        # For prioritized experience replay buffer
+        td_error = torch.abs(old_val - td_target).detach()
+        # Don't know where else to put this
+        # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        td_error = td_error.to(device)
+
+        if weights != None:
+            # Weights are used when using PER for correcting bias (see https://github.com/Howuhh/prioritized_experience_replay/blob/main/memory/buffer.py)
+            mse_loss = torch.mean((old_val - td_target)**2 * weights)
+        else:
+            mse_loss = F.mse_loss(td_target, old_val)
+        return mse_loss, old_val, td_error
 
     """Main training method for ReDO DQN."""
     run_name = f"{cfg.env_id}__{cfg.exp_name}__{cfg.seed}__{int(time.time())}"
@@ -79,7 +92,6 @@ def main(cfg: ConfigLunar) -> None:
     torch.set_float32_matmul_precision("high")
 
     device = set_cuda_configuration(cfg.gpu)
-    
     wrapped_envs = [make_env(cfg.env_id, cfg.seed + i, i, cfg.capture_video, run_name) for i in range(cfg.num_envs)]
 
     # env setup
@@ -90,18 +102,29 @@ def main(cfg: ConfigLunar) -> None:
     if cfg.use_lecun_init:
         # Use the same initialization scheme as jax/flax
         q_network.apply(lecun_normal_initializer)
+
     optimizer = optim.Adam(q_network.parameters(), lr=cfg.learning_rate, eps=cfg.adam_eps)
     target_network = cfg.QNetwork(envs).to(device)
     target_network.load_state_dict(q_network.state_dict())
 
-    rb = ReplayBuffer(
-        cfg.buffer_size,
-        envs.single_observation_space,
-        envs.single_action_space,
-        device,
-        optimize_memory_usage=True,
-        handle_timeout_termination=False,
-    )
+    if cfg.use_per:
+        rb = PrioritizedReplayBuffer(
+            cfg.buffer_size,
+            envs.single_observation_space,
+            envs.single_action_space,
+            device,
+            optimize_memory_usage=True,
+            handle_timeout_termination=False,
+        )
+    else:
+        rb = ReplayBuffer(
+            cfg.buffer_size,
+            envs.single_observation_space,
+            envs.single_action_space,
+            device,
+            optimize_memory_usage=True,
+            handle_timeout_termination=False,
+        )
     start_time = time.time()
 
     # TRY NOT TO MODIFY: start the game
@@ -150,21 +173,45 @@ def main(cfg: ConfigLunar) -> None:
             # Flag for logging
             done_update = False
             if done_update := global_step % cfg.train_frequency == 0:
-                data = rb.sample(cfg.batch_size)
-                loss, old_val = dqn_loss(
-                    q_network=q_network,
-                    target_network=target_network,
-                    obs=data.observations,
-                    next_obs=data.next_observations,
-                    actions=data.actions,
-                    rewards=data.rewards,
-                    dones=data.dones,
-                    gamma=cfg.gamma,
-                )
+                if isinstance(rb, ReplayBuffer):
+                    data = rb.sample(cfg.batch_size)
+                    loss, old_val, td_error = dqn_loss(
+                        q_network=q_network,
+                        target_network=target_network,
+                        obs=data.observations,
+                        next_obs=data.next_observations,
+                        actions=data.actions,
+                        rewards=data.rewards,
+                        dones=data.dones,
+                        gamma=cfg.gamma,
+                        device=device
+                    )
+                elif isinstance(rb, PrioritizedReplayBuffer):
+                    data, weights, tree_idxs = rb.sample(cfg.batch_size)
+                    weights = weights.to(device)
+                    loss, old_val, td_error = dqn_loss(
+                        q_network=q_network,
+                        target_network=target_network,
+                        obs=data.observations,
+                        next_obs=data.next_observations,
+                        actions=data.actions,
+                        rewards=data.rewards,
+                        dones=data.dones,
+                        gamma=cfg.gamma,
+                        device=device,
+                        weights=weights,
+                    )
+                else:
+                    raise RuntimeError("Unknown buffer")
+
                 # optimize the model
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
+
+                if isinstance(rb, PrioritizedReplayBuffer):
+                    # Move td_error to CPU before converting to NumPy array if using gpu
+                    rb.update_priorities(tree_idxs, td_error.cpu().numpy())
 
                 logs = {
                     "losses/td_loss": loss,
@@ -173,7 +220,14 @@ def main(cfg: ConfigLunar) -> None:
                 }
 
             if global_step % cfg.redo_check_interval == 0:
-                redo_samples = rb.sample(cfg.redo_bs)
+
+                if isinstance(rb, ReplayBuffer):
+                    redo_samples = rb.sample(cfg.redo_bs)
+                elif isinstance(rb, PrioritizedReplayBuffer):
+                    redo_samples, _, _ = rb.sample(cfg.redo_bs)
+                else:
+                    raise RuntimeError("Unknown buffer")
+
                 redo_out = run_redo(
                     redo_samples,
                     model=q_network,

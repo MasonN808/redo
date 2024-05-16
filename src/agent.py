@@ -2,6 +2,10 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from tfkan.layers import DenseKAN
+# import sys
+# sys.path.append("/home/mnakamura_umass_edu/continual-learning-rbr/fast-kan")
+from fastkan import FastKAN as KAN
+
 # import tensorflow as tf
 
 class QNetwork(nn.Module):
@@ -35,6 +39,26 @@ class QNetworkNature(QNetwork):
         return x
 
 # TODO: Finish. This is utilizing keras but not sure if this will change the entire code base.
+# class QNetworkKAN(QNetwork):
+#     """KAN DQN agent."""
+#     # See https://github.com/ZPZhou-lab/tfkan?tab=readme-ov-file#how-to-use for KAN tensorflow implementation
+#     def __init__(self, env):
+#         super().__init__(env)
+#         n_input_channels = env.observation_space.shape[1]
+
+#         self.model = tf.keras.models.Sequential([
+#             # DenseKAN(n_input_channels),
+#             DenseKAN(64),
+#             DenseKAN(64),
+#             DenseKAN(self.n_actions)
+#         ])
+
+#         self.model.build(input_shape=(None, n_input_channels))
+
+#     def forward(self, x):
+#         x = self.model(x)
+#         return x
+
 class QNetworkKAN(QNetwork):
     """KAN DQN agent."""
     # See https://github.com/ZPZhou-lab/tfkan?tab=readme-ov-file#how-to-use for KAN tensorflow implementation
@@ -42,14 +66,7 @@ class QNetworkKAN(QNetwork):
         super().__init__(env)
         n_input_channels = env.observation_space.shape[1]
 
-        self.model = tf.keras.models.Sequential([
-            # DenseKAN(n_input_channels),
-            DenseKAN(64),
-            DenseKAN(64),
-            DenseKAN(self.n_actions)
-        ])
-
-        self.model.build(input_shape=(None, n_input_channels))
+        self.model = KAN([n_input_channels, 64, 64, self.n_actions])
 
     def forward(self, x):
         x = self.model(x)
