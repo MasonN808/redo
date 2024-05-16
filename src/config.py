@@ -111,8 +111,8 @@ class ConfigLunarKAN:
     track: bool = True
     wandb_project_name: str = "ReDo"
     wandb_entity: Optional[str] = "mason-nakamura1"
-    wandb_notes: str = "Testing KAN Networks as simple Q-network for DQN"
-    wandb_group: str = ""
+    wandb_notes: str = "Running Lunar lander with fast-KAN networks and base buffer"
+    wandb_group: str = "Lunarlander-KAN"
     capture_video: bool = True
     save_model: bool = False
 
