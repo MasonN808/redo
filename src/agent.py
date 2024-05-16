@@ -61,7 +61,6 @@ class QNetworkNature(QNetwork):
 
 class QNetworkKAN(QNetwork):
     """KAN DQN agent."""
-    # See https://github.com/ZPZhou-lab/tfkan?tab=readme-ov-file#how-to-use for KAN tensorflow implementation
     def __init__(self, env):
         super().__init__(env)
         n_input_channels = env.observation_space.shape[1]
