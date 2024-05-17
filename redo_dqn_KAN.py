@@ -148,7 +148,7 @@ def main(cfg: ConfigLunarKAN) -> None:
                 if "episode" not in info:
                     continue
                 epi_return = info["episode"]["r"].item()
-                print(f"global_step={global_step}, episodic_return={epi_return}")
+                # print(f"global_step={global_step}, episodic_return={epi_return}")
                 wandb.log(
                     {
                         "charts/episodic_return": epi_return,

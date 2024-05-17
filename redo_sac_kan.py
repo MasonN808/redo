@@ -34,8 +34,8 @@ class Args:
     """the entity (team) of wandb's project"""
     capture_video: bool = True
     """whether to capture videos of the agent performances (check out `videos` folder)"""
-    wandb_notes: str = "Running Hopper, continuous actions, with fast-KAN networks and base buffer"
-    wandb_group: str = "Hopper-KAN"
+    wandb_notes: str = "Increased grid to 50, and enabled layernorm for input. Running Hopper, continuous actions, with fast-KAN networks and base buffer"
+    wandb_group: str = "Hopper-KAN-50Grid"
 
     # Algorithm specific arguments
     env_id: str = "Hopper-v4"
@@ -67,6 +67,14 @@ class Args:
     autotune: bool = True
     """automatic tuning of the entropy coefficient"""
 
+    # KAN Arguments
+    num_grids: int = 50
+
+    # ReDo Params
+    enable_redo: bool = False
+    redo_tau: float = 0.025  # 0.025 for default, else 0.1
+    redo_check_interval: int = 1000
+    redo_bs: int = 64
 
 def make_env(env_id, seed, idx, capture_video, run_name):
     def thunk():
@@ -84,24 +92,18 @@ def make_env(env_id, seed, idx, capture_video, run_name):
 
 # ALGO LOGIC: initialize agent here:
 class SoftQNetwork(nn.Module):
-    def __init__(self, env):
+    def __init__(self, env, num_grids):
         super().__init__()
-        # self.fc1 = nn.Linear(np.array(env.single_observation_space.shape).prod() + np.prod(env.single_action_space.shape), 256)
-        # self.fc2 = nn.Linear(256, 256)
-        # self.fc3 = nn.Linear(256, 1)
         
         self.model = KAN([
             np.array(env.single_observation_space.shape).prod() + np.prod(env.single_action_space.shape),
             256,
             256,
             1,
-        ])
+        ], num_grids=num_grids)
 
     def forward(self, x, a):
         x = torch.cat([x, a], 1)
-        # x = F.relu(self.fc1(x))
-        # x = F.relu(self.fc2(x))
-        # x = self.fc3(x)
 
         x = self.model(x)
         return x
@@ -112,27 +114,23 @@ LOG_STD_MIN = -5
 
 
 class Actor(nn.Module):
-    def __init__(self, env):
+    def __init__(self, env, num_grids):
         super().__init__()
-        # self.fc1 = nn.Linear(np.array(env.single_observation_space.shape).prod(), 256)
-        # self.fc2 = nn.Linear(256, 256)
-        # self.fc_mean = nn.Linear(256, np.prod(env.single_action_space.shape))
-        # self.fc_logstd = nn.Linear(256, np.prod(env.single_action_space.shape))
 
         self.model = KAN([
             np.array(env.single_observation_space.shape).prod(),
             256,
             256,
-        ])
+        ], num_grids=num_grids)
         
         self.model_std = KAN([
             256,
             np.prod(env.single_action_space.shape),
-        ])
+        ], num_grids=num_grids)
         self.model_mean = KAN([
             256,
             np.prod(env.single_action_space.shape),
-        ])
+        ], num_grids=num_grids)
 
         # action rescaling
         self.register_buffer(
@@ -143,8 +141,6 @@ class Actor(nn.Module):
         )
 
     def forward(self, x):
-        # x = F.relu(self.fc1(x))
-        # x = F.relu(self.fc2(x))
         x = self.model(x)
         mean = self.model_mean(x)
         log_std = self.model_std(x)
@@ -200,7 +196,6 @@ poetry run pip install "stable_baselines3==2.0.0a1"
         "|param|value|\n|-|-|\n%s" % ("\n".join([f"|{key}|{value}|" for key, value in vars(args).items()])),
     )
 
-    print(f"==>> args.seed: {args.seed}")
     # TRY NOT TO MODIFY: seeding
     random.seed(args.seed)
     np.random.seed(args.seed)
@@ -215,9 +210,9 @@ poetry run pip install "stable_baselines3==2.0.0a1"
 
     max_action = float(envs.single_action_space.high[0])
 
-    actor = Actor(envs).to(device)
-    qf1 = SoftQNetwork(envs).to(device)
-    qf2 = SoftQNetwork(envs).to(device)
+    actor = Actor(envs, num_grids=args.num_grids).to(device)
+    qf1 = SoftQNetwork(envs, num_grids=args.num_grids).to(device)
+    qf2 = SoftQNetwork(envs, num_grids=args.num_grids).to(device)
     qf1_target = SoftQNetwork(envs).to(device)
     qf2_target = SoftQNetwork(envs).to(device)
     qf1_target.load_state_dict(qf1.state_dict())
@@ -294,6 +289,14 @@ poetry run pip install "stable_baselines3==2.0.0a1"
             # optimize the model
             q_optimizer.zero_grad()
             qf_loss.backward()
+
+            # Log gradient norms for Q-networks
+            qf1_grad_norm = torch.norm(torch.stack([torch.norm(p.grad.detach()) for p in qf1.parameters() if p.grad is not None]))
+            qf2_grad_norm = torch.norm(torch.stack([torch.norm(p.grad.detach()) for p in qf2.parameters() if p.grad is not None]))
+
+            writer.add_scalar("grad_norms/qf1_grad_norm", qf1_grad_norm.item(), global_step)
+            writer.add_scalar("grad_norms/qf2_grad_norm", qf2_grad_norm.item(), global_step)
+
             q_optimizer.step()
 
             if global_step % args.policy_frequency == 0:  # TD 3 Delayed update support
@@ -308,6 +311,9 @@ poetry run pip install "stable_baselines3==2.0.0a1"
 
                     actor_optimizer.zero_grad()
                     actor_loss.backward()
+                    # Log gradient norm for actor network
+                    actor_grad_norm = torch.norm(torch.stack([torch.norm(p.grad.detach()) for p in actor.parameters() if p.grad is not None]))
+                    writer.add_scalar("grad_norms/actor_grad_norm", actor_grad_norm.item(), global_step)
                     actor_optimizer.step()
 
                     if args.autotune:
@@ -326,6 +332,36 @@ poetry run pip install "stable_baselines3==2.0.0a1"
                     target_param.data.copy_(args.tau * param.data + (1 - args.tau) * target_param.data)
                 for param, target_param in zip(qf2.parameters(), qf2_target.parameters()):
                     target_param.data.copy_(args.tau * param.data + (1 - args.tau) * target_param.data)
+
+
+            if global_step % args.redo_check_interval == 0:
+
+                if isinstance(rb, ReplayBuffer):
+                    redo_samples = rb.sample(args.redo_bs)
+                elif isinstance(rb, PrioritizedReplayBuffer):
+                    redo_samples, _, _ = rb.sample(args.redo_bs)
+                else:
+                    raise RuntimeError("Unknown buffer")
+
+                redo_out = run_redo(
+                    redo_samples,
+                    model=q_network,
+                    optimizer=optimizer,
+                    tau=cfg.redo_tau,
+                    re_initialize=cfg.enable_redo,
+                    use_lecun_init=cfg.use_lecun_init,
+                )
+
+                q_network = redo_out["model"]
+                optimizer = redo_out["optimizer"]
+
+                logs |= {
+                    f"regularization/dormant_t={cfg.redo_tau}_fraction": redo_out["dormant_fraction"],
+                    f"regularization/dormant_t={cfg.redo_tau}_count": redo_out["dormant_count"],
+                    "regularization/dormant_t=0.0_fraction": redo_out["zero_fraction"],
+                    "regularization/dormant_t=0.0_count": redo_out["zero_count"],
+                }
+
 
             if global_step % 100 == 0:
                 writer.add_scalar("losses/qf1_values", qf1_a_values.mean().item(), global_step)

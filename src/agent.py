@@ -38,26 +38,6 @@ class QNetworkNature(QNetwork):
         x = self.q(x)
         return x
 
-# TODO: Finish. This is utilizing keras but not sure if this will change the entire code base.
-# class QNetworkKAN(QNetwork):
-#     """KAN DQN agent."""
-#     # See https://github.com/ZPZhou-lab/tfkan?tab=readme-ov-file#how-to-use for KAN tensorflow implementation
-#     def __init__(self, env):
-#         super().__init__(env)
-#         n_input_channels = env.observation_space.shape[1]
-
-#         self.model = tf.keras.models.Sequential([
-#             # DenseKAN(n_input_channels),
-#             DenseKAN(64),
-#             DenseKAN(64),
-#             DenseKAN(self.n_actions)
-#         ])
-
-#         self.model.build(input_shape=(None, n_input_channels))
-
-#     def forward(self, x):
-#         x = self.model(x)
-#         return x
 
 class QNetworkKAN(QNetwork):
     """KAN DQN agent."""
