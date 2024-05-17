@@ -107,13 +107,13 @@ class ConfigLunarKAN:
     tags: Union[Tuple[str, ...], str, None] = None
     seed: int = 0
     torch_deterministic: bool = True
-    gpu: Optional[int] = 0
+    gpu: Optional[int] = None
     track: bool = True
     wandb_project_name: str = "ReDo"
     wandb_entity: Optional[str] = "mason-nakamura1"
     wandb_notes: str = "Running Lunar lander with fast-KAN networks and base buffer"
     wandb_group: str = "Lunarlander-KAN"
-    capture_video: bool = True
+    capture_video: bool = False
     save_model: bool = False
 
     # Buffer settings

@@ -213,6 +213,7 @@ def run_redo(
         _ = model(obs)
 
         # Masks for tau=0 logging
+        # print(activations)
         zero_masks = _get_redo_masks(activations, 0.0)
         total_neurons = sum([torch.numel(mask) for mask in zero_masks])
         zero_count = sum([torch.sum(mask) for mask in zero_masks])
