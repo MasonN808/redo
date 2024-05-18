@@ -213,8 +213,8 @@ poetry run pip install "stable_baselines3==2.0.0a1"
     actor = Actor(envs, num_grids=args.num_grids).to(device)
     qf1 = SoftQNetwork(envs, num_grids=args.num_grids).to(device)
     qf2 = SoftQNetwork(envs, num_grids=args.num_grids).to(device)
-    qf1_target = SoftQNetwork(envs).to(device)
-    qf2_target = SoftQNetwork(envs).to(device)
+    qf1_target = SoftQNetwork(envs, num_grids=args.num_grids).to(device)
+    qf2_target = SoftQNetwork(envs, num_grids=args.num_grids).to(device)
     qf1_target.load_state_dict(qf1.state_dict())
     qf2_target.load_state_dict(qf2.state_dict())
     q_optimizer = optim.Adam(list(qf1.parameters()) + list(qf2.parameters()), lr=args.q_lr)
@@ -334,33 +334,33 @@ poetry run pip install "stable_baselines3==2.0.0a1"
                     target_param.data.copy_(args.tau * param.data + (1 - args.tau) * target_param.data)
 
 
-            if global_step % args.redo_check_interval == 0:
+            # if global_step % args.redo_check_interval == 0:
 
-                if isinstance(rb, ReplayBuffer):
-                    redo_samples = rb.sample(args.redo_bs)
-                elif isinstance(rb, PrioritizedReplayBuffer):
-                    redo_samples, _, _ = rb.sample(args.redo_bs)
-                else:
-                    raise RuntimeError("Unknown buffer")
+            #     if isinstance(rb, ReplayBuffer):
+            #         redo_samples = rb.sample(args.redo_bs)
+            #     elif isinstance(rb, PrioritizedReplayBuffer):
+            #         redo_samples, _, _ = rb.sample(args.redo_bs)
+            #     else:
+            #         raise RuntimeError("Unknown buffer")
 
-                redo_out = run_redo(
-                    redo_samples,
-                    model=q_network,
-                    optimizer=optimizer,
-                    tau=cfg.redo_tau,
-                    re_initialize=cfg.enable_redo,
-                    use_lecun_init=cfg.use_lecun_init,
-                )
+            #     redo_out = run_redo(
+            #         redo_samples,
+            #         model=q_network,
+            #         optimizer=optimizer,
+            #         tau=cfg.redo_tau,
+            #         re_initialize=cfg.enable_redo,
+            #         use_lecun_init=cfg.use_lecun_init,
+            #     )
 
-                q_network = redo_out["model"]
-                optimizer = redo_out["optimizer"]
+            #     q_network = redo_out["model"]
+            #     optimizer = redo_out["optimizer"]
 
-                logs |= {
-                    f"regularization/dormant_t={cfg.redo_tau}_fraction": redo_out["dormant_fraction"],
-                    f"regularization/dormant_t={cfg.redo_tau}_count": redo_out["dormant_count"],
-                    "regularization/dormant_t=0.0_fraction": redo_out["zero_fraction"],
-                    "regularization/dormant_t=0.0_count": redo_out["zero_count"],
-                }
+            #     logs |= {
+            #         f"regularization/dormant_t={cfg.redo_tau}_fraction": redo_out["dormant_fraction"],
+            #         f"regularization/dormant_t={cfg.redo_tau}_count": redo_out["dormant_count"],
+            #         "regularization/dormant_t=0.0_fraction": redo_out["zero_fraction"],
+            #         "regularization/dormant_t=0.0_count": redo_out["zero_count"],
+            #     }
 
 
             if global_step % 100 == 0:
