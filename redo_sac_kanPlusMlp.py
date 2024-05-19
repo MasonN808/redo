@@ -200,7 +200,7 @@ poetry run pip install "stable_baselines3==2.0.0a1"
 
     max_action = float(envs.single_action_space.high[0])
 
-    actor = Actor(envs, num_grids=args.num_grids).to(device)
+    actor = Actor(envs).to(device)
     qf1 = SoftQNetwork(envs, num_grids=args.num_grids).to(device)
     qf2 = SoftQNetwork(envs, num_grids=args.num_grids).to(device)
     qf1_target = SoftQNetwork(envs, num_grids=args.num_grids).to(device)

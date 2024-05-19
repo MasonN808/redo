@@ -32,9 +32,9 @@ class Args:
     """the wandb's project name"""
     wandb_entity: str = "mason-nakamura1"
     """the entity (team) of wandb's project"""
-    capture_video: bool = True
+    capture_video: bool = False
     """whether to capture videos of the agent performances (check out `videos` folder)"""
-    wandb_notes: str = "Running Hopper, continuous actions, with MLP networks and base buffer"
+    wandb_notes: str = "Rerunning MLP for grad norm logs"
     wandb_group: str = "Hopper-MLP"
 
     # Algorithm specific arguments
@@ -269,6 +269,14 @@ poetry run pip install "stable_baselines3==2.0.0a1"
             # optimize the model
             q_optimizer.zero_grad()
             qf_loss.backward()
+
+            # Log gradient norms for Q-networks
+            qf1_grad_norm = torch.norm(torch.stack([torch.norm(p.grad.detach()) for p in qf1.parameters() if p.grad is not None]))
+            qf2_grad_norm = torch.norm(torch.stack([torch.norm(p.grad.detach()) for p in qf2.parameters() if p.grad is not None]))
+
+            writer.add_scalar("grad_norms/qf1_grad_norm", qf1_grad_norm.item(), global_step)
+            writer.add_scalar("grad_norms/qf2_grad_norm", qf2_grad_norm.item(), global_step)
+
             q_optimizer.step()
 
             if global_step % args.policy_frequency == 0:  # TD 3 Delayed update support
@@ -283,6 +291,11 @@ poetry run pip install "stable_baselines3==2.0.0a1"
 
                     actor_optimizer.zero_grad()
                     actor_loss.backward()
+
+                    # Log gradient norm for actor network
+                    actor_grad_norm = torch.norm(torch.stack([torch.norm(p.grad.detach()) for p in actor.parameters() if p.grad is not None]))
+                    writer.add_scalar("grad_norms/actor_grad_norm", actor_grad_norm.item(), global_step)
+                    
                     actor_optimizer.step()
 
                     if args.autotune:
