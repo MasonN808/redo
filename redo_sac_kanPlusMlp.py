@@ -34,8 +34,8 @@ class Args:
     """the entity (team) of wandb's project"""
     capture_video: bool = False
     """whether to capture videos of the agent performances (check out `videos` folder)"""
-    wandb_notes: str = "Increased grid to 50, and enabled layernorm for input. Running Hopper, continuous actions, with fast-KAN networks and base buffer"
-    wandb_group: str = "Hopper-KAN-50Grid"
+    wandb_notes: str = "Actor is MLP, Critic is KAN, grid is 8 size"
+    wandb_group: str = "Hopper-KAN+MLP"
 
     # Algorithm specific arguments
     env_id: str = "Hopper-v4"
@@ -68,7 +68,7 @@ class Args:
     """automatic tuning of the entropy coefficient"""
 
     # KAN Arguments
-    num_grids: int = 50
+    num_grids: int = 8 # 8 is default
 
     # ReDo Params
     enable_redo: bool = False
@@ -114,23 +114,12 @@ LOG_STD_MIN = -5
 
 
 class Actor(nn.Module):
-    def __init__(self, env, num_grids):
+    def __init__(self, env):
         super().__init__()
-
-        self.model = KAN([
-            np.array(env.single_observation_space.shape).prod(),
-            256,
-            256,
-        ], num_grids=num_grids)
-        
-        self.model_std = KAN([
-            256,
-            np.prod(env.single_action_space.shape),
-        ], num_grids=num_grids)
-        self.model_mean = KAN([
-            256,
-            np.prod(env.single_action_space.shape),
-        ], num_grids=num_grids)
+        self.fc1 = nn.Linear(np.array(env.single_observation_space.shape).prod(), 256)
+        self.fc2 = nn.Linear(256, 256)
+        self.fc_mean = nn.Linear(256, np.prod(env.single_action_space.shape))
+        self.fc_logstd = nn.Linear(256, np.prod(env.single_action_space.shape))
 
         # action rescaling
         self.register_buffer(
@@ -141,9 +130,10 @@ class Actor(nn.Module):
         )
 
     def forward(self, x):
-        x = self.model(x)
-        mean = self.model_mean(x)
-        log_std = self.model_std(x)
+        x = F.relu(self.fc1(x))
+        x = F.relu(self.fc2(x))
+        mean = self.fc_mean(x)
+        log_std = self.fc_logstd(x)
         log_std = torch.tanh(log_std)
         log_std = LOG_STD_MIN + 0.5 * (LOG_STD_MAX - LOG_STD_MIN) * (log_std + 1)  # From SpinUp / Denis Yarats
 
