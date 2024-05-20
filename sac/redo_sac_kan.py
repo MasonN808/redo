@@ -4,14 +4,15 @@ import random
 import time
 from dataclasses import dataclass
 
-import gymnasium as gym
+import libs.Gymnasium as gym
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 import tyro
-from stable_baselines3.common.buffers import ReplayBuffer
+from src.buffer import ReplayBuffer, PrioritizedReplayBuffer
+from src.redo import run_redo
 from torch.utils.tensorboard import SummaryWriter
 from fastkan import FastKAN as KAN
 os.environ["WANDB_API_KEY"] = '9762ecfe45a25eda27bb421e664afe503bb42297'
@@ -24,7 +25,7 @@ class Args:
     """seed of the experiment"""
     torch_deterministic: bool = True
     """if toggled, `torch.backends.cudnn.deterministic=False`"""
-    cuda: bool = True
+    cuda: bool = False
     """if toggled, cuda will be enabled by default"""
     track: bool = True
     """if toggled, this experiment will be tracked with Weights and Biases"""
@@ -165,7 +166,7 @@ class Actor(nn.Module):
 
 
 if __name__ == "__main__":
-    import stable_baselines3 as sb3
+    import libs.stable_baselines3 as sb3
 
     if sb3.__version__ < "2.0":
         raise ValueError(
@@ -333,34 +334,34 @@ poetry run pip install "stable_baselines3==2.0.0a1"
                 for param, target_param in zip(qf2.parameters(), qf2_target.parameters()):
                     target_param.data.copy_(args.tau * param.data + (1 - args.tau) * target_param.data)
 
+            # Dormant Neuron Logging
+            if global_step % args.redo_check_interval == 0:
+                if isinstance(rb, ReplayBuffer):
+                    redo_samples = rb.sample(args.redo_bs)
+                elif isinstance(rb, PrioritizedReplayBuffer):
+                    redo_samples, _, _ = rb.sample(args.redo_bs)
+                else:
+                    raise RuntimeError("Unknown buffer")
 
-            # if global_step % args.redo_check_interval == 0:
+                models = {"qf1": qf1, "qf2": qf2, "actor": actor}
+                for model_name, model in models.items():
+                    redo_out = run_redo(
+                        redo_samples,
+                        model=model,
+                        optimizer=optimizer,
+                        tau=args.redo_tau,
+                        re_initialize=args.enable_redo,
+                        use_lecun_init=args.use_lecun_init,
+                    )
 
-            #     if isinstance(rb, ReplayBuffer):
-            #         redo_samples = rb.sample(args.redo_bs)
-            #     elif isinstance(rb, PrioritizedReplayBuffer):
-            #         redo_samples, _, _ = rb.sample(args.redo_bs)
-            #     else:
-            #         raise RuntimeError("Unknown buffer")
+                    # Reassigned if using weight reinitialization, otherwise, will be the same model and optimizer
+                    model = redo_out["model"]
+                    optimizer = redo_out["optimizer"]
 
-            #     redo_out = run_redo(
-            #         redo_samples,
-            #         model=q_network,
-            #         optimizer=optimizer,
-            #         tau=cfg.redo_tau,
-            #         re_initialize=cfg.enable_redo,
-            #         use_lecun_init=cfg.use_lecun_init,
-            #     )
-
-            #     q_network = redo_out["model"]
-            #     optimizer = redo_out["optimizer"]
-
-            #     logs |= {
-            #         f"regularization/dormant_t={cfg.redo_tau}_fraction": redo_out["dormant_fraction"],
-            #         f"regularization/dormant_t={cfg.redo_tau}_count": redo_out["dormant_count"],
-            #         "regularization/dormant_t=0.0_fraction": redo_out["zero_fraction"],
-            #         "regularization/dormant_t=0.0_count": redo_out["zero_count"],
-            #     }
+                    writer.add_scalar(f"regularization/{model_name}/dormant_t={args.redo_tau}_fraction", redo_out["dormant_fraction"], global_step)
+                    writer.add_scalar(f"regularization/{model_name}/dormant_t={args.redo_tau}_count", redo_out["dormant_count"], global_step)
+                    writer.add_scalar(f"regularization/{model_name}/dormant_t=0.0_fraction", redo_out["zero_fraction"], global_step)
+                    writer.add_scalar(f"regularization/{model_name}/dormant_t=0.0_count", redo_out["zero_count"], global_step)
 
 
             if global_step % 100 == 0:
