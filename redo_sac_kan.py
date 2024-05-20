@@ -34,8 +34,7 @@ class Args:
     """the entity (team) of wandb's project"""
     capture_video: bool = False
     """whether to capture videos of the agent performances (check out `videos` folder)"""
-    wandb_notes: str = "Increased grid to 50, and enabled layernorm for input. Running Hopper, continuous actions, with fast-KAN networks and base buffer"
-    wandb_group: str = "Hopper-KAN-50Grid"
+    wandb_notes: str = "Benchmarking KAN and MLP on all Mujoco envs"
 
     # Algorithm specific arguments
     env_id: str = "Hopper-v4"
@@ -68,7 +67,8 @@ class Args:
     """automatic tuning of the entropy coefficient"""
 
     # KAN Arguments
-    num_grids: int = 50
+    num_grids: int = 8
+    wandb_group: str = f"{env_id}-KAN-{num_grids}Grid"
 
     # ReDo Params
     enable_redo: bool = False
