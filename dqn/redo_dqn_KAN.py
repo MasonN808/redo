@@ -4,7 +4,7 @@ import random
 import time
 from pathlib import Path
 
-import gymnasium as gym
+import libs.Gymnasium as gym
 import numpy as np
 import torch
 import torch.nn.functional as F
