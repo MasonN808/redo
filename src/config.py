@@ -61,11 +61,10 @@ class ConfigLunar:
     torch_deterministic: bool = True
     gpu: Optional[int] = 0
     track: bool = True
-    wandb_project_name: str = "ReDo"
+    wandb_project_name: str = "ReDo-Reproduce"
     wandb_entity: Optional[str] = "mason-nakamura1"
     wandb_notes: str = "Running Lunar lander with ReDo method and base buffer"
-    wandb_group: str = "Lunarlander-ReDo"
-    capture_video: bool = True
+    capture_video: bool = False
     save_model: bool = False
 
     # Buffer settings
@@ -97,6 +96,7 @@ class ConfigLunar:
     redo_tau: float = 0.025  # 0.025 for default, else 0.1
     redo_check_interval: int = 1000
     redo_bs: int = 64
+    wandb_group: str = f"{env_id}-ReDo-{enable_redo}"
 
 @dataclass
 class ConfigLunarKAN:

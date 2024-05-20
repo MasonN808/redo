@@ -1,12 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from tfkan.layers import DenseKAN
-# import sys
-# sys.path.append("/home/mnakamura_umass_edu/continual-learning-rbr/fast-kan")
 from fastkan import FastKAN as KAN
-
-# import tensorflow as tf
 
 class QNetwork(nn.Module):
     """Base class for different QNetwork configurations."""
