@@ -12,7 +12,6 @@ import torch.nn.functional as F
 import torch.optim as optim
 import tyro
 from src import buffer, redo
-# from src.redo import run_redo
 from torch.utils.tensorboard import SummaryWriter
 from fastkan import FastKAN as KAN
 os.environ["WANDB_API_KEY"] = '9762ecfe45a25eda27bb421e664afe503bb42297'
