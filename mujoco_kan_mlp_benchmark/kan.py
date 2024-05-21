@@ -3,8 +3,6 @@ import os
 import random
 import time
 from dataclasses import dataclass
-# import sys
-# sys.path.append("./libs")
 # need to do a pip3 install -e gymnasium
 import gymnasium as gym
 import numpy as np
@@ -335,36 +333,6 @@ poetry run pip install "stable_baselines3==2.0.0a1"
                     target_param.data.copy_(args.tau * param.data + (1 - args.tau) * target_param.data)
                 for param, target_param in zip(qf2.parameters(), qf2_target.parameters()):
                     target_param.data.copy_(args.tau * param.data + (1 - args.tau) * target_param.data)
-
-            # Dormant Neuron Logging
-            # if global_step % args.redo_check_interval == 0:
-            #     if isinstance(rb, buffer.ReplayBuffer):
-            #         redo_samples = rb.sample(args.redo_bs)
-            #     elif isinstance(rb, buffer.PrioritizedReplayBuffer):
-            #         redo_samples, _, _ = rb.sample(args.redo_bs)
-            #     else:
-            #         raise RuntimeError("Unknown buffer")
-
-            #     models = {"qf1": qf1, "qf2": qf2, "actor": actor}
-            #     for model_name, model in models.items():
-            #         redo_out = redo.bufferrun_redo(
-            #             redo_samples,
-            #             model=model,
-            #             optimizer=optimizer,
-            #             tau=args.redo_tau,
-            #             re_initialize=args.enable_redo,
-            #             use_lecun_init=args.use_lecun_init,
-            #         )
-
-            #         # Reassigned if using weight reinitialization, otherwise, will be the same model and optimizer
-            #         model = redo_out["model"]
-            #         optimizer = redo_out["optimizer"]
-
-            #         writer.add_scalar(f"regularization/{model_name}/dormant_t={args.redo_tau}_fraction", redo_out["dormant_fraction"], global_step)
-            #         writer.add_scalar(f"regularization/{model_name}/dormant_t={args.redo_tau}_count", redo_out["dormant_count"], global_step)
-            #         writer.add_scalar(f"regularization/{model_name}/dormant_t=0.0_fraction", redo_out["zero_fraction"], global_step)
-            #         writer.add_scalar(f"regularization/{model_name}/dormant_t=0.0_count", redo_out["zero_count"], global_step)
-
 
             if global_step % 100 == 0:
                 writer.add_scalar("losses/qf1_values", qf1_a_values.mean().item(), global_step)

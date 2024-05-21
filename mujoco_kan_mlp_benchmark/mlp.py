@@ -3,7 +3,7 @@ import os
 import random
 import time
 from dataclasses import dataclass
-
+# need to do a pip3 install -e gymnasium
 import gymnasium as gym
 import numpy as np
 import torch
@@ -11,7 +11,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 import tyro
-from stable_baselines3.common.buffers import ReplayBuffer
+from src import buffer, redo
+# from src.redo import run_redo
 from torch.utils.tensorboard import SummaryWriter
 from fastkan import FastKAN as KAN
 os.environ["WANDB_API_KEY"] = '9762ecfe45a25eda27bb421e664afe503bb42297'
@@ -34,8 +35,7 @@ class Args:
     """the entity (team) of wandb's project"""
     capture_video: bool = False
     """whether to capture videos of the agent performances (check out `videos` folder)"""
-    wandb_notes: str = "Rerunning MLP for grad norm logs"
-    wandb_group: str = "Hopper-MLP"
+    wandb_notes: str = "Benchmarking KAN and MLP on all Mujoco envs"
 
     # Algorithm specific arguments
     env_id: str = "Hopper-v4"
@@ -67,6 +67,13 @@ class Args:
     autotune: bool = True
     """automatic tuning of the entropy coefficient"""
 
+    wandb_group: str = f"{env_id}-MLP"
+
+    # ReDo Params
+    enable_redo: bool = False
+    redo_tau: float = 0.025  # 0.025 for default, else 0.1
+    redo_check_interval: int = 1000
+    redo_bs: int = 64
 
 def make_env(env_id, seed, idx, capture_video, run_name):
     def thunk():
@@ -142,15 +149,14 @@ class Actor(nn.Module):
         mean = torch.tanh(mean) * self.action_scale + self.action_bias
         return action, log_prob, mean
 
-
 if __name__ == "__main__":
     import stable_baselines3 as sb3
 
     if sb3.__version__ < "2.0":
         raise ValueError(
             """Ongoing migration: run the following command to install the new dependencies:
-poetry run pip install "stable_baselines3==2.0.0a1"
-"""
+            poetry run pip install "stable_baselines3==2.0.0a1"
+            """
         )
 
     args = tyro.cli(Args)
@@ -175,7 +181,6 @@ poetry run pip install "stable_baselines3==2.0.0a1"
         "|param|value|\n|-|-|\n%s" % ("\n".join([f"|{key}|{value}|" for key, value in vars(args).items()])),
     )
 
-    print(f"==>> args.seed: {args.seed}")
     # TRY NOT TO MODIFY: seeding
     random.seed(args.seed)
     np.random.seed(args.seed)
@@ -190,11 +195,11 @@ poetry run pip install "stable_baselines3==2.0.0a1"
 
     max_action = float(envs.single_action_space.high[0])
 
-    actor = Actor(envs).to(device)
-    qf1 = SoftQNetwork(envs).to(device)
-    qf2 = SoftQNetwork(envs).to(device)
-    qf1_target = SoftQNetwork(envs).to(device)
-    qf2_target = SoftQNetwork(envs).to(device)
+    actor = Actor(envs, num_grids=args.num_grids).to(device)
+    qf1 = SoftQNetwork(envs, num_grids=args.num_grids).to(device)
+    qf2 = SoftQNetwork(envs, num_grids=args.num_grids).to(device)
+    qf1_target = SoftQNetwork(envs, num_grids=args.num_grids).to(device)
+    qf2_target = SoftQNetwork(envs, num_grids=args.num_grids).to(device)
     qf1_target.load_state_dict(qf1.state_dict())
     qf2_target.load_state_dict(qf2.state_dict())
     q_optimizer = optim.Adam(list(qf1.parameters()) + list(qf2.parameters()), lr=args.q_lr)
@@ -210,7 +215,7 @@ poetry run pip install "stable_baselines3==2.0.0a1"
         alpha = args.alpha
 
     envs.single_observation_space.dtype = np.float32
-    rb = ReplayBuffer(
+    rb = buffer.ReplayBuffer(
         args.buffer_size,
         envs.single_observation_space,
         envs.single_action_space,
@@ -235,7 +240,7 @@ poetry run pip install "stable_baselines3==2.0.0a1"
         # TRY NOT TO MODIFY: record rewards for plotting purposes
         if "final_info" in infos:
             for info in infos["final_info"]:
-                print(f"global_step={global_step}, episodic_return={info['episode']['r']}")
+                # print(f"global_step={global_step}, episodic_return={info['episode']['r']}")
                 writer.add_scalar("charts/episodic_return", info["episode"]["r"], global_step)
                 writer.add_scalar("charts/episodic_length", info["episode"]["l"], global_step)
                 break
@@ -291,11 +296,9 @@ poetry run pip install "stable_baselines3==2.0.0a1"
 
                     actor_optimizer.zero_grad()
                     actor_loss.backward()
-
                     # Log gradient norm for actor network
                     actor_grad_norm = torch.norm(torch.stack([torch.norm(p.grad.detach()) for p in actor.parameters() if p.grad is not None]))
                     writer.add_scalar("grad_norms/actor_grad_norm", actor_grad_norm.item(), global_step)
-                    
                     actor_optimizer.step()
 
                     if args.autotune:
@@ -323,7 +326,7 @@ poetry run pip install "stable_baselines3==2.0.0a1"
                 writer.add_scalar("losses/qf_loss", qf_loss.item() / 2.0, global_step)
                 writer.add_scalar("losses/actor_loss", actor_loss.item(), global_step)
                 writer.add_scalar("losses/alpha", alpha, global_step)
-                print("SPS:", int(global_step / (time.time() - start_time)))
+                # print("SPS:", int(global_step / (time.time() - start_time)))
                 writer.add_scalar("charts/SPS", int(global_step / (time.time() - start_time)), global_step)
                 if args.autotune:
                     writer.add_scalar("losses/alpha_loss", alpha_loss.item(), global_step)
