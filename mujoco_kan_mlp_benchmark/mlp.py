@@ -11,9 +11,15 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 import tyro
+import sys, os
+print(sys.path)
+
+sys.path.insert(0, os.path.abspath(os.path.join('..', 'src')))
+sys.path.insert(0, "/home/rbr-saad/Documents/SaadProjects/continual-learning-rbr/redo")
+
+print(sys.path)
 from src import buffer, redo
 from torch.utils.tensorboard import SummaryWriter
-from fastkan import FastKAN as KAN
 os.environ["WANDB_API_KEY"] = '9762ecfe45a25eda27bb421e664afe503bb42297'
 
 @dataclass
@@ -194,11 +200,11 @@ if __name__ == "__main__":
 
     max_action = float(envs.single_action_space.high[0])
 
-    actor = Actor(envs, num_grids=args.num_grids).to(device)
-    qf1 = SoftQNetwork(envs, num_grids=args.num_grids).to(device)
-    qf2 = SoftQNetwork(envs, num_grids=args.num_grids).to(device)
-    qf1_target = SoftQNetwork(envs, num_grids=args.num_grids).to(device)
-    qf2_target = SoftQNetwork(envs, num_grids=args.num_grids).to(device)
+    actor = Actor(envs).to(device)
+    qf1 = SoftQNetwork(envs).to(device)
+    qf2 = SoftQNetwork(envs).to(device)
+    qf1_target = SoftQNetwork(envs).to(device)
+    qf2_target = SoftQNetwork(envs).to(device)
     qf1_target.load_state_dict(qf1.state_dict())
     qf2_target.load_state_dict(qf2.state_dict())
     q_optimizer = optim.Adam(list(qf1.parameters()) + list(qf2.parameters()), lr=args.q_lr)
