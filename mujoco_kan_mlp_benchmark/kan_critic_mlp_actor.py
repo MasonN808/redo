@@ -11,6 +11,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 import tyro
+import sys, os
+sys.path.insert(0, os.path.abspath(os.path.join('..', 'src')))
+sys.path.insert(0, "/home/rbr-saad/Documents/SaadProjects/continual-learning-rbr/redo")
 from src import buffer, redo
 # from src.redo import run_redo
 from torch.utils.tensorboard import SummaryWriter
