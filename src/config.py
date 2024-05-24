@@ -145,3 +145,6 @@ class ConfigLunarKAN:
     redo_tau: float = 0.025  # 0.025 for default, else 0.1
     redo_check_interval: int = 1000
     redo_bs: int = 64
+
+    # For logging KAN neurons; chooses type of binary mask operation
+    use_or = False

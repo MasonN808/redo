@@ -183,7 +183,7 @@ def _reset_adam_moments(optimizer: optim.Adam, reset_masks: dict[str, torch.Tens
 
     return optimizer
 
-def mask_join(masks):
+def mask_join(masks, use_or):
     joined_masks = []
     # Loop through the list, taking every two elements
     for i in range(0, len(masks), 2):
@@ -193,7 +193,10 @@ def mask_join(masks):
             mask2 = masks[i + 1]
         else:
             raise IndexError("The number of KAN layers should be even!")
-        joined_masks.append(torch.logical_and(mask1, mask2))
+        if use_or:
+            joined_masks.append(torch.logical_or(mask1, mask2))
+        else:
+            joined_masks.append(torch.logical_and(mask1, mask2))
     return joined_masks
 
 
@@ -205,6 +208,7 @@ def run_redo(
     tau: float,
     re_initialize: bool,
     use_lecun_init: bool,
+    use_or: bool = False,
 ) -> tuple[nn.Module, optim.Adam, float, int]:
     """
     Checks the number of dormant neurons for a given model.
@@ -236,7 +240,7 @@ def run_redo(
         # Number of masks will be doubled due to 2 tensors of weights for each layer
         # We combine them into one
         if using_kan:
-            zero_masks = mask_join(zero_masks)
+            zero_masks = mask_join(zero_masks, use_or)
 
         total_neurons = sum([torch.numel(mask) for mask in zero_masks])
         zero_count = sum([torch.sum(mask) for mask in zero_masks])
@@ -245,7 +249,7 @@ def run_redo(
         # Calculate the masks actually used for resetting
         masks = _get_redo_masks(activations, tau, using_kan=using_kan)
         if using_kan:
-            masks = mask_join(masks)
+            masks = mask_join(masks, use_or)
         dormant_count = sum([torch.sum(mask) for mask in masks])
         dormant_fraction = (dormant_count / sum([torch.numel(mask) for mask in masks])) * 100
         print(
