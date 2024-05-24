@@ -52,12 +52,12 @@ class QNetworkCustom1(QNetwork):
         super().__init__(env)
         n_input_channels = env.observation_space.shape[1]
 
-        self.kan = KAN([n_input_channels, 64])
+        self.kan1 = KAN([n_input_channels, 64])
         self.mlp1 = nn.Linear(64, 64)
         self.mlp2 = nn.Linear(64, self.n_actions)
 
     def forward(self, x):
-        x = self.mlp2(F.relu(self.mlp1(self.kan(x))))
+        x = self.mlp2(F.relu(self.mlp1(self.kan1(x))))
         return x
     
 class QNetworkCustom2(QNetwork):
@@ -86,6 +86,48 @@ class QNetworkCustom3(QNetwork):
 
     def forward(self, x):
         x = self.mlp1(self.kan2(self.kan1(x)))
+        return x
+
+class QNetworkCustom4(QNetwork):
+    """CUSTOM KAN DQN agent."""
+    def __init__(self, env):
+        super().__init__(env)
+        n_input_channels = env.observation_space.shape[1]
+
+        self.mlp1 = nn.Linear(n_input_channels, 64)
+        self.kan1 = KAN([64, 64])
+        self.mlp2 = nn.Linear(64, self.n_actions)
+
+    def forward(self, x):
+        x = self.mlp2(self.kan1(F.relu(self.mlp1(x))))
+        return x
+
+class QNetworkCustom5(QNetwork):
+    """CUSTOM KAN DQN agent."""
+    def __init__(self, env):
+        super().__init__(env)
+        n_input_channels = env.observation_space.shape[1]
+
+        self.mlp1 = nn.Linear(n_input_channels, 64)
+        self.mlp2 = nn.Linear(64, 64)
+        self.kan1 = KAN([64, self.n_actions])
+
+    def forward(self, x):
+        x = self.kan1(F.relu(self.mlp2(F.relu(self.mlp1(x)))))
+        return x
+    
+class QNetworkCustom6(QNetwork):
+    """CUSTOM KAN DQN agent."""
+    def __init__(self, env):
+        super().__init__(env)
+        n_input_channels = env.observation_space.shape[1]
+
+        self.mlp1 = nn.Linear(n_input_channels, 64)
+        self.kan1 = KAN([64, 64])
+        self.kan2 = KAN([64, self.n_actions])
+
+    def forward(self, x):
+        x = self.kan2(self.kan1(F.relu(self.mlp1(x))))
         return x
 
     
