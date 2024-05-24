@@ -12,7 +12,7 @@ class ConfigLunarKAN_custom1:
     tags: Union[Tuple[str, ...], str, None] = None
     seed: int = 0
     torch_deterministic: bool = True
-    gpu: Optional[int] = None
+    gpu: Optional[int] = 0
     track: bool = True
     wandb_project_name: str = "ReDo"
     wandb_entity: Optional[str] = "mason-nakamura1"
@@ -65,7 +65,7 @@ class ConfigLunarKAN_custom2:
     tags: Union[Tuple[str, ...], str, None] = None
     seed: int = 0
     torch_deterministic: bool = True
-    gpu: Optional[int] = None
+    gpu: Optional[int] = 0
     track: bool = True
     wandb_project_name: str = "ReDo"
     wandb_entity: Optional[str] = "mason-nakamura1"
@@ -119,7 +119,7 @@ class ConfigLunarKAN_custom3:
     tags: Union[Tuple[str, ...], str, None] = None
     seed: int = 0
     torch_deterministic: bool = True
-    gpu: Optional[int] = None
+    gpu: Optional[int] = 0
     track: bool = True
     wandb_project_name: str = "ReDo"
     wandb_entity: Optional[str] = "mason-nakamura1"
@@ -170,7 +170,7 @@ class ConfigLunarKAN_custom4:
     tags: Union[Tuple[str, ...], str, None] = None
     seed: int = 0
     torch_deterministic: bool = True
-    gpu: Optional[int] = None
+    gpu: Optional[int] = 0
     track: bool = True
     wandb_project_name: str = "ReDo"
     wandb_entity: Optional[str] = "mason-nakamura1"
@@ -221,7 +221,7 @@ class ConfigLunarKAN_custom5:
     tags: Union[Tuple[str, ...], str, None] = None
     seed: int = 0
     torch_deterministic: bool = True
-    gpu: Optional[int] = None
+    gpu: Optional[int] = 0
     track: bool = True
     wandb_project_name: str = "ReDo"
     wandb_entity: Optional[str] = "mason-nakamura1"
@@ -272,7 +272,7 @@ class ConfigLunarKAN_custom6:
     tags: Union[Tuple[str, ...], str, None] = None
     seed: int = 0
     torch_deterministic: bool = True
-    gpu: Optional[int] = None
+    gpu: Optional[int] = 0
     track: bool = True
     wandb_project_name: str = "ReDo"
     wandb_entity: Optional[str] = "mason-nakamura1"
