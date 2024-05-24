@@ -12,6 +12,8 @@ import torch.optim as optim
 import tyro
 import wandb
 
+import sys, os
+sys.path.insert(0, os.path.abspath(os.path.join('redo')))
 from src.agent import linear_schedule
 from src.buffer import ReplayBuffer, PrioritizedReplayBuffer
 from src.config import ConfigLunar, ConfigDemon

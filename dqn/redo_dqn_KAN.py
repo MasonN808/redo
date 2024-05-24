@@ -4,7 +4,7 @@ import random
 import time
 from pathlib import Path
 
-import libs.Gymnasium as gym
+import gymnasium as gym
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -12,6 +12,8 @@ import torch.optim as optim
 import tyro
 import wandb
 
+import sys, os
+sys.path.insert(0, os.path.abspath(os.path.join('redo')))
 from src.agent import linear_schedule
 from src.buffer import ReplayBuffer, PrioritizedReplayBuffer
 from src.config import ConfigLunarKAN
@@ -248,7 +250,7 @@ def main(cfg: ConfigLunarKAN) -> None:
                 }
 
             if global_step % 100 == 0 and done_update:
-                print("SPS:", int(global_step / (time.time() - start_time)))
+                # print("SPS:", int(global_step / (time.time() - start_time)))
                 wandb.log(
                     logs,
                     step=global_step,
@@ -265,7 +267,7 @@ def main(cfg: ConfigLunarKAN) -> None:
         model_path = Path(f"runs/{run_name}/{cfg.exp_name}")
         model_path.mkdir(parents=True, exist_ok=True)
         torch.save(q_network.state_dict(), model_path / ".cleanrl_model")
-        print(f"model saved to {model_path}")
+        # print(f"model saved to {model_path}")
         from src.evaluate import evaluate
 
         episodic_returns = evaluate(

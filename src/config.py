@@ -59,8 +59,8 @@ class ConfigLunar:
     tags: Union[Tuple[str, ...], str, None] = None
     seed: int = 0
     torch_deterministic: bool = True
-    gpu: Optional[int] = 0
-    track: bool = True
+    gpu: Optional[int] = None
+    track: bool = False
     wandb_project_name: str = "ReDo-Reproduce"
     wandb_entity: Optional[str] = "mason-nakamura1"
     wandb_notes: str = "Running Lunar lander with ReDo method and base buffer"

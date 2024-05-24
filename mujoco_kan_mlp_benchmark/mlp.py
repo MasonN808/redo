@@ -12,12 +12,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 import tyro
 import sys, os
-print(sys.path)
-
-sys.path.insert(0, os.path.abspath(os.path.join('..', 'src')))
-sys.path.insert(0, "/home/rbr-saad/Documents/SaadProjects/continual-learning-rbr/redo")
-
-print(sys.path)
+sys.path.insert(0, os.path.abspath(os.path.join('redo')))
 from src import buffer, redo
 from torch.utils.tensorboard import SummaryWriter
 os.environ["WANDB_API_KEY"] = '9762ecfe45a25eda27bb421e664afe503bb42297'

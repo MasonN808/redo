@@ -66,15 +66,18 @@ def _get_activation(name: str, activations: dict[str, torch.Tensor]):
 
 
 @torch.inference_mode()
-def _get_redo_masks(activations: dict[str, torch.Tensor], tau: float) -> torch.Tensor:
+def _get_redo_masks(activations: dict[str, torch.Tensor], tau: float, using_kan: bool=False) -> torch.Tensor:
     """
     Computes the ReDo mask for a given set of activations.
     The returned mask has True where neurons are dormant and False where they are active.
     """
     masks = []
-
+    last_layer_idx = -1
+    # Since KAN has spline and basis layer for each layer, we subtract another output layer TODO: Make work if basis is disabled which is possible
+    if using_kan:
+        last_layer_idx -= 1
     # Last activation are the q-values, which are never reset
-    for name, activation in list(activations.items())[:-1]:
+    for name, activation in list(activations.items())[:last_layer_idx]:
         # Taking the mean here conforms to the expectation under D in the main paper's formula
         if activation.ndim == 4:
             # Conv layer
@@ -180,6 +183,19 @@ def _reset_adam_moments(optimizer: optim.Adam, reset_masks: dict[str, torch.Tens
 
     return optimizer
 
+def mask_join(masks):
+    joined_masks = []
+    # Loop through the list, taking every two elements
+    for i in range(0, len(masks), 2):
+        mask1 = masks[i]
+        # Ensure there is a second element
+        if i + 1 < len(masks):
+            mask2 = masks[i + 1]
+        else:
+            raise IndexError("The number of KAN layers should be even!")
+        joined_masks.append(torch.logical_and(mask1, mask2))
+    return joined_masks
+
 
 @torch.no_grad()
 def run_redo(
@@ -211,18 +227,30 @@ def run_redo(
 
         # Calculate activations
         _ = model(obs)
-
+        using_kan = False
+        if type(model).__name__ == "QNetworkKAN":
+            using_kan = True
+        
         # Masks for tau=0 logging
-        # print(activations)
-        zero_masks = _get_redo_masks(activations, 0.0)
+        zero_masks = _get_redo_masks(activations, 0.0, using_kan=using_kan)
+        # Number of masks will be doubled due to 2 tensors of weights for each layer
+        # We combine them into one
+        if using_kan:
+            zero_masks = mask_join(zero_masks)
+
         total_neurons = sum([torch.numel(mask) for mask in zero_masks])
         zero_count = sum([torch.sum(mask) for mask in zero_masks])
         zero_fraction = (zero_count / total_neurons) * 100
 
         # Calculate the masks actually used for resetting
-        masks = _get_redo_masks(activations, tau)
+        masks = _get_redo_masks(activations, tau, using_kan=using_kan)
+        if using_kan:
+            masks = mask_join(masks)
         dormant_count = sum([torch.sum(mask) for mask in masks])
         dormant_fraction = (dormant_count / sum([torch.numel(mask) for mask in masks])) * 100
+        print(
+            f"Total neurons: {total_neurons} | Dormant neurons: {dormant_count} | Dormant fraction: {dormant_fraction:.2f}%"
+        )
 
         # Re-initialize the dormant neurons and reset the Adam moments
         if re_initialize:
@@ -245,3 +273,4 @@ def run_redo(
             "dormant_fraction": dormant_fraction,
             "dormant_count": dormant_count,
         }
+    
