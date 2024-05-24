@@ -12,19 +12,18 @@ import torch.optim as optim
 import tyro
 import wandb
 
-import sys, os
-sys.path.insert(0, os.path.abspath(os.path.join('redo')))
-from src.agent import linear_schedule
-from src.buffer import ReplayBuffer, PrioritizedReplayBuffer
-from src.config import ConfigLunarKAN
-from src.redo import run_redo
-from src.utils import lecun_normal_initializer, make_env, set_cuda_configuration
+# Need to do a pip install -e redo on new machines to fix imports
+from agent import linear_schedule
+from buffer import ReplayBuffer, PrioritizedReplayBuffer
+from config import ConfigLunarKAN_custom2
+from redo import run_redo
+from utils import lecun_normal_initializer, make_env, set_cuda_configuration
 
 # Enables WandB cloud syncing
 os.environ['WANDB_DISABLED'] = 'False'
 os.environ["WANDB_API_KEY"] = '9762ecfe45a25eda27bb421e664afe503bb42297'
 
-def main(cfg: ConfigLunarKAN) -> None:
+def main(cfg: ConfigLunarKAN_custom2) -> None:
     def dqn_loss(
         q_network: cfg.QNetwork,
         target_network: cfg.QNetwork,
@@ -291,6 +290,6 @@ def main(cfg: ConfigLunarKAN) -> None:
 
 
 if __name__ == "__main__":
-    cfg = tyro.cli(ConfigLunarKAN)
+    cfg = tyro.cli(ConfigLunarKAN_custom2)
     main(cfg)
 

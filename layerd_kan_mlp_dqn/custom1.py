@@ -12,19 +12,18 @@ import torch.optim as optim
 import tyro
 import wandb
 
-import sys, os
-sys.path.insert(0, os.path.abspath(os.path.join('redo')))
-from src.agent import linear_schedule
-from src.buffer import ReplayBuffer, PrioritizedReplayBuffer
-from src.config import ConfigLunarKAN
-from src.redo import run_redo
-from src.utils import lecun_normal_initializer, make_env, set_cuda_configuration
+# Need to do a pip install -e redo on new machines to fix imports
+from agent import linear_schedule
+from buffer import ReplayBuffer, PrioritizedReplayBuffer
+from config import ConfigLunarKAN_custom1
+from redo import run_redo
+from utils import lecun_normal_initializer, make_env, set_cuda_configuration
 
 # Enables WandB cloud syncing
 os.environ['WANDB_DISABLED'] = 'False'
 os.environ["WANDB_API_KEY"] = '9762ecfe45a25eda27bb421e664afe503bb42297'
 
-def main(cfg: ConfigLunarKAN) -> None:
+def main(cfg: ConfigLunarKAN_custom1) -> None:
     def dqn_loss(
         q_network: cfg.QNetwork,
         target_network: cfg.QNetwork,
@@ -221,34 +220,34 @@ def main(cfg: ConfigLunarKAN) -> None:
                     "charts/SPS": int(global_step / (time.time() - start_time)),
                 }
 
-            if global_step % cfg.redo_check_interval == 0:
+            # if global_step % cfg.redo_check_interval == 0:
 
-                if isinstance(rb, ReplayBuffer):
-                    redo_samples = rb.sample(cfg.redo_bs)
-                elif isinstance(rb, PrioritizedReplayBuffer):
-                    redo_samples, _, _ = rb.sample(cfg.redo_bs)
-                else:
-                    raise RuntimeError("Unknown buffer")
+            #     if isinstance(rb, ReplayBuffer):
+            #         redo_samples = rb.sample(cfg.redo_bs)
+            #     elif isinstance(rb, PrioritizedReplayBuffer):
+            #         redo_samples, _, _ = rb.sample(cfg.redo_bs)
+            #     else:
+            #         raise RuntimeError("Unknown buffer")
 
-                redo_out = run_redo(
-                    redo_samples,
-                    model=q_network,
-                    optimizer=optimizer,
-                    tau=cfg.redo_tau,
-                    re_initialize=cfg.enable_redo,
-                    use_lecun_init=cfg.use_lecun_init,
-                    use_or=cfg.use_or,
-                )
+            #     redo_out = run_redo(
+            #         redo_samples,
+            #         model=q_network,
+            #         optimizer=optimizer,
+            #         tau=cfg.redo_tau,
+            #         re_initialize=cfg.enable_redo,
+            #         use_lecun_init=cfg.use_lecun_init,
+            #         use_or=cfg.use_or,
+            #     )
 
-                q_network = redo_out["model"]
-                optimizer = redo_out["optimizer"]
+            #     q_network = redo_out["model"]
+            #     optimizer = redo_out["optimizer"]
 
-                logs |= {
-                    f"regularization/dormant_t={cfg.redo_tau}_fraction": redo_out["dormant_fraction"],
-                    f"regularization/dormant_t={cfg.redo_tau}_count": redo_out["dormant_count"],
-                    "regularization/dormant_t=0.0_fraction": redo_out["zero_fraction"],
-                    "regularization/dormant_t=0.0_count": redo_out["zero_count"],
-                }
+            #     logs |= {
+            #         f"regularization/dormant_t={cfg.redo_tau}_fraction": redo_out["dormant_fraction"],
+            #         f"regularization/dormant_t={cfg.redo_tau}_count": redo_out["dormant_count"],
+            #         "regularization/dormant_t=0.0_fraction": redo_out["zero_fraction"],
+            #         "regularization/dormant_t=0.0_count": redo_out["zero_count"],
+            #     }
 
             if global_step % 100 == 0 and done_update:
                 # print("SPS:", int(global_step / (time.time() - start_time)))
@@ -291,6 +290,6 @@ def main(cfg: ConfigLunarKAN) -> None:
 
 
 if __name__ == "__main__":
-    cfg = tyro.cli(ConfigLunarKAN)
+    cfg = tyro.cli(ConfigLunarKAN_custom1)
     main(cfg)
 

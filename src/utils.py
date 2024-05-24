@@ -5,7 +5,7 @@ import gymnasium as gym
 import torch
 import torch.nn as nn
 
-from .wrappers import (
+from wrappers import (
     ClipRewardEnv,
     EpisodicLifeEnv,
     FireResetEnv,

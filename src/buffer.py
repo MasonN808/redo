@@ -13,7 +13,7 @@ import numpy as np
 import psutil
 import torch
 from gymnasium import spaces
-from .tree import SumTree
+from per_tree import SumTree
 
 
 class ReplayBufferSamples(NamedTuple):

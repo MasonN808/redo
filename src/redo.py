@@ -6,8 +6,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch import optim
 
-from .agent import QNetwork
-from .buffer import ReplayBufferSamples
+from agent import QNetwork
+from buffer import ReplayBufferSamples
 from typing import Union
 
 
