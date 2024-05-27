@@ -566,3 +566,206 @@ class PrioritizedReplayBuffer(BaseBuffer):
             self.tree.update(data_idx, priority)
             self.max_priority = max(self.max_priority, priority)
 
+
+class PrioritizedCriticalReplayBuffer(BaseBuffer):
+    def __init__(self,
+        buffer_size: int,
+        observation_space: spaces.Space,
+        action_space: spaces.Space,
+        device: Union[torch.device, str] = "auto",
+        n_envs: int = 1,
+        optimize_memory_usage: bool = False,
+        handle_timeout_termination: bool = True,
+        eps=1e-2,
+        alpha=0.1,
+        beta=0.1
+    ):
+        assert n_envs==1, "Current implementation does not support > 1 environements with tree object"
+        super().__init__(buffer_size, observation_space, action_space, device, n_envs=n_envs)
+        # Adjust buffer size
+        self.buffer_size = max(buffer_size // n_envs, 1)
+
+        # Check that the replay buffer can fit into the memory
+        if psutil is not None:
+            mem_available = psutil.virtual_memory().available
+
+        # there is a bug if both optimize_memory_usage and handle_timeout_termination are true
+        # see https://github.com/DLR-RM/stable-baselines3/issues/934
+        if optimize_memory_usage and handle_timeout_termination:
+            raise ValueError(
+                "ReplayBuffer does not support optimize_memory_usage = True "
+                "and handle_timeout_termination = True simultaneously."
+            )
+        self.optimize_memory_usage = optimize_memory_usage
+        self.tree = SumTree(size=buffer_size)
+
+        # PER params
+        self.eps = eps  # minimal priority, prevents zero probabilities
+        self.alpha = alpha  # determines how much prioritization is used, α = 0 corresponding to the uniform case
+        self.beta = beta  # determines the amount of importance-sampling correction, b = 1 fully compensate for the non-uniform probabilities
+        self.max_priority = eps  # priority for new samples, init as eps
+
+        # transition: state, action, reward, next_state, done
+        self.observations = np.zeros((self.buffer_size, self.n_envs, *self.obs_shape), dtype=observation_space.dtype)
+        if optimize_memory_usage:
+            # `observations` contains also the next observation
+            self.next_observations = None
+        else:
+            self.next_observations = np.zeros((self.buffer_size, self.n_envs, *self.obs_shape), dtype=observation_space.dtype)
+        self.actions = np.zeros((self.buffer_size, self.n_envs, self.action_dim), dtype=action_space.dtype)
+        self.rewards = np.zeros((self.buffer_size, self.n_envs), dtype=np.float32)
+        self.dones = np.zeros((self.buffer_size, self.n_envs), dtype=np.float32)
+
+        # Handle timeouts termination properly if needed
+        # see https://github.com/DLR-RM/stable-baselines3/issues/284
+        self.handle_timeout_termination = handle_timeout_termination
+        self.timeouts = np.zeros((self.buffer_size, self.n_envs), dtype=np.float32)
+
+        self.real_size = 0
+
+        if psutil is not None:
+            total_memory_usage = self.observations.nbytes + self.actions.nbytes + self.rewards.nbytes + self.dones.nbytes
+
+            if self.next_observations is not None:
+                total_memory_usage += self.next_observations.nbytes
+
+            if total_memory_usage > mem_available:
+                # Convert to GB
+                total_memory_usage /= 1e9
+                mem_available /= 1e9
+                warnings.warn(
+                    "This system does not have apparently enough memory to store the complete "
+                    f"replay buffer {total_memory_usage:.2f}GB > {mem_available:.2f}GB"
+                )
+
+    def add(
+        self,
+        obs: np.ndarray,
+        next_obs: np.ndarray,
+        action: np.ndarray,
+        reward: np.ndarray,
+        done: np.ndarray,
+        infos: list[Dict[str, Any]],
+    ) -> None:
+
+        # store transition index with maximum priority in sum tree
+        self.tree.add(self.max_priority, self.pos)
+
+        # Reshape needed when using multiple envs with discrete observations
+        # as numpy cannot broadcast (n_discrete,) to (n_discrete, 1)
+        if isinstance(self.observation_space, spaces.Discrete):
+            obs = obs.reshape((self.n_envs, *self.obs_shape))
+            next_obs = next_obs.reshape((self.n_envs, *self.obs_shape))
+
+        # Reshape to handle multi-dim and discrete action spaces, see GH #970 #1392
+        action = action.reshape((self.n_envs, self.action_dim))
+
+        # Copy to avoid modification by reference
+        self.observations[self.pos] = np.array(obs).copy()
+
+        if self.optimize_memory_usage:
+            self.observations[(self.pos + 1) % self.buffer_size] = np.array(next_obs).copy()
+        else:
+            self.next_observations[self.pos] = np.array(next_obs).copy()
+        self.actions[self.pos] = np.array(action).copy()
+        self.rewards[self.pos] = np.array(reward).copy()
+        self.dones[self.pos] = np.array(done).copy()
+
+        if self.handle_timeout_termination:
+            self.timeouts[self.pos] = np.array([info.get("TimeLimit.truncated", False) for info in infos])
+
+        self.pos += 1
+        if self.pos == self.buffer_size:
+            self.full = True
+            self.pos = 0
+
+        # update counters
+        self.real_size = min(self.buffer_size, self.real_size + 1)
+
+    def sample(self, batch_size: int) -> ReplayBufferSamples:
+        if not self.optimize_memory_usage:
+            return super().sample(batch_size=batch_size)
+        # Do not sample the element with index `self.pos` as the transitions is invalid
+        # (we use only one array to store `obs` and `next_obs`)
+        if self.full:
+            batch_inds = (np.random.randint(1, self.buffer_size, size=batch_size) + self.pos) % self.buffer_size
+        else:
+            batch_inds = np.random.randint(0, self.pos, size=batch_size)
+        return self._get_samples(batch_inds, batch_size)
+    
+    def _get_samples(self, batch_inds: np.ndarray, batch_size: int) -> ReplayBufferSamples:
+        sample_idxs, tree_idxs = [], []
+        priorities = torch.empty(batch_size, 1, dtype=torch.float)
+
+        # To sample a minibatch of size k, the range [0, p_total] is divided equally into k ranges.
+        # Next, a value is uniformly sampled from each range. Finally the transitions that correspond
+        # to each of these sampled values are retrieved from the tree. (Appendix B.2.1, Proportional prioritization)
+        segment = self.tree.total / batch_size
+        for i in range(batch_size):
+            a, b = segment * i, segment * (i + 1)
+
+            cumsum = random.uniform(a, b)
+            # sample_idx is a sample index in buffer, needed further to sample actual transitions
+            # tree_idx is a index of a sample in the tree, needed further to update priorities
+            tree_idx, priority, sample_idx = self.tree.get(cumsum)
+
+            priorities[i] = priority
+            tree_idxs.append(tree_idx)
+            sample_idxs.append(sample_idx)
+
+        sample_idxs = np.array(sample_idxs)
+
+        # Concretely, we define the probability of sampling transition i as P(i) = p_i^α / \sum_{k} p_k^α
+        # where p_i > 0 is the priority of transition i. (Section 3.3)
+        probs = priorities / self.tree.total
+
+        # The estimation of the expected value with stochastic updates relies on those updates corresponding
+        # to the same distribution as its expectation. Prioritized replay introduces bias because it changes this
+        # distribution in an uncontrolled fashion, and therefore changes the solution that the estimates will
+        # converge to (even if the policy and state distribution are fixed). We can correct this bias by using
+        # importance-sampling (IS) weights w_i = (1/N * 1/P(i))^β that fully compensates for the non-uniform
+        # probabilities P(i) if β = 1. These weights can be folded into the Q-learning update by using w_i * δ_i
+        # instead of δ_i (this is thus weighted IS, not ordinary IS, see e.g. Mahmood et al., 2014).
+        # For stability reasons, we always normalize weights by 1/maxi wi so that they only scale the
+        # update downwards (Section 3.4, first paragraph)
+        weights = (self.real_size * probs) ** -self.beta
+
+        
+
+        # As mentioned in Section 3.4, whenever importance sampling is used, all weights w_i were scaled
+        # so that max_i w_i = 1. We found that this worked better in practice as it kept all weights
+        # within a reasonable range, avoiding the possibility of extremely large updates. (Appendix B.2.1, Proportional prioritization)
+        weights = weights / weights.max()
+
+        # Sample randomly the env idx
+        env_indices = np.random.randint(0, high=self.n_envs, size=(len(batch_inds),))
+
+        if self.optimize_memory_usage:
+            next_obs = self.observations[(sample_idxs + 1) % self.buffer_size, env_indices, :]
+        else:
+            next_obs = self.next_observations[sample_idxs, env_indices, :]
+
+        data = (
+            self.observations[sample_idxs, env_indices, :],
+            self.actions[sample_idxs, env_indices, :],
+            next_obs,
+            # Only use dones that are not due to timeouts
+            # deactivated by default (timeouts is initialized as an array of False)
+            (self.dones[sample_idxs, env_indices] * (1 - self.timeouts[batch_inds, env_indices])).reshape(-1, 1),
+            self.rewards[sample_idxs, env_indices].reshape(-1, 1),
+        )
+        return ReplayBufferSamples(*tuple(map(self.to_torch, data))), weights, tree_idxs
+
+    def update_priorities(self, data_idxs, priorities):
+        if isinstance(priorities, torch.Tensor):
+            priorities = priorities.detach().cpu().numpy()
+
+        for data_idx, priority in zip(data_idxs, priorities):
+            # The first variant we consider is the direct, proportional prioritization where p_i = |δ_i| + eps,
+            # where eps is a small positive constant that prevents the edge-case of transitions not being
+            # revisited once their error is zero. (Section 3.3)
+            priority = (priority + self.eps) ** self.alpha
+
+            self.tree.update(data_idx, priority)
+            self.max_priority = max(self.max_priority, priority)
+
