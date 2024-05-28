@@ -11,12 +11,11 @@ import torch.nn.functional as F
 import torch.optim as optim
 import tyro
 import wandb
-
+from config import ConfigDemonAttack
 import sys, os
 sys.path.insert(0, os.path.abspath(os.path.join('redo')))
 from src.agent import linear_schedule
 from src.buffer import ReplayBuffer, PrioritizedReplayBuffer
-from src.config import ConfigLunar, ConfigDemon
 from src.redo import run_redo
 from src.utils import lecun_normal_initializer, make_env, set_cuda_configuration
 
@@ -24,7 +23,7 @@ from src.utils import lecun_normal_initializer, make_env, set_cuda_configuration
 os.environ['WANDB_DISABLED'] = 'False'
 os.environ["WANDB_API_KEY"] = '9762ecfe45a25eda27bb421e664afe503bb42297'
 
-def main(cfg: ConfigLunar) -> None:
+def main(cfg: ConfigDemonAttack) -> None:
     def dqn_loss(
         q_network: cfg.QNetwork,
         target_network: cfg.QNetwork,
@@ -290,5 +289,5 @@ def main(cfg: ConfigLunar) -> None:
 
 
 if __name__ == "__main__":
-    cfg = tyro.cli(ConfigLunar)
+    cfg = tyro.cli(ConfigDemonAttack)
     main(cfg)
