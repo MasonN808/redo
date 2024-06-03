@@ -230,7 +230,15 @@ def run_redo(
                 handles.append(module.register_forward_hook(activation_getter(name)))
 
         # Calculate activations
-        _ = model(obs)
+        # NOTE: Only SAC and DQN implementation supported
+        if type(model).__name__ == "SoftQNetwork":
+            actions = batch.actions
+            _ = model(obs, actions)
+        elif type(model).__name__ == "Actor" or type(model).__name__ == "QNetwork":
+            _ = model(obs)
+        else:
+            raise ValueError
+
         using_kan = False
         if type(model).__name__ == "QNetworkKAN":
             using_kan = True
