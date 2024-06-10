@@ -1,7 +1,13 @@
 import math
 import typing
 
+import sys, os
 import gymnasium as gym
+# sys.path.insert(0, os.path.abspath(os.path.join('gym-minigrid')))
+
+sys.path.insert(0, os.path.abspath(os.path.join('libs')))
+print(sys.path)
+import Minigrid
 import torch
 import torch.nn as nn
 
@@ -13,10 +19,19 @@ from wrappers import (
     NoopResetEnv,
 )
 
+from Minigrid.minigrid.wrappers import *
+
 ATARI_ENVS = [
     "ALE/DemonAttack-v5",
     "ALE/Asterix-v5"
     # TODO: Fill this
+]
+
+MINIGRID_ENVS = [
+    'MiniGrid-DoorKey-8x8-v0',
+    'MiniGrid-LavaCrossingS9N1-v0',
+    'MiniGrid-SimpleCrossingS9N1-v0',
+    'MiniGrid-MultiSkill-N2-v0',
 ]
 
 def make_env(env_id, seed, idx, capture_video, run_name):
@@ -42,6 +57,11 @@ def make_env(env_id, seed, idx, capture_video, run_name):
             env = gym.wrappers.ResizeObservation(env, (84, 84))
             env = gym.wrappers.GrayScaleObservation(env)
             env = gym.wrappers.FrameStack(env, 4)
+
+        if env_id in MINIGRID_ENVS:
+            # env = RGBImgPartialObsWrapper(env)  # Get rid of the 'mission' field
+            env = ImgObsWrapper(env) # Gets rid of the dictionary like observations with singleton key of 'image' after RGBImgPartialObsWrapper
+            # env = ActionBonus(env)
         env = gym.wrappers.RecordEpisodeStatistics(env)
         env.action_space.seed(seed)
 

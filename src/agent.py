@@ -32,6 +32,41 @@ class QNetworkNature(QNetwork):
         x = F.relu(self.fc1(x))
         x = self.q(x)
         return x
+    
+class QNetworkNatureMinigrid(QNetwork):
+    """Basic DQN agent for the Minigrid Environment."""
+
+    def __init__(self, env):
+        super().__init__(env)
+        batch_size, height, width, channels = env.observation_space.shape
+        self.conv1 = nn.Conv2d(3, 16, (2, 2))
+        self.conv2 = nn.Conv2d(16, 32, (2, 2))
+        self.conv3 = nn.Conv2d(32, 64, (2, 2))
+
+        self.image_conv = nn.Sequential(
+            self.conv1,
+            nn.ReLU(),
+            nn.MaxPool2d((2, 2)),
+            self.conv2,
+            nn.ReLU(),
+            self.conv3,
+            nn.ReLU()
+        )
+        self.embedding_size = ((height-1)//2-2)*((width-1)//2-2)*64
+
+        self.head = nn.Sequential(
+            nn.Linear(self.embedding_size, 64),
+            # nn.Tanh(),
+            nn.ReLU(),
+            nn.Linear(64, self.n_actions)
+        )
+
+
+    def forward(self, obs):
+        obs = obs.float() # Do this since sometimes it is uchar after learning_starts begins for some reason
+        obs = obs.permute(0,3,1,2)
+        obs = self.image_conv(obs)
+        return self.head(obs.reshape(obs.size(0), -1))
 
 
 class QNetworkKAN(QNetwork):
@@ -157,9 +192,9 @@ class QNetworkBase(QNetwork):
     def __init__(self, env):
         super().__init__(env)
         n_input_channels = env.observation_space.shape[1]
-        self.fc1 = nn.Linear(n_input_channels, 64)
-        self.fc2 = nn.Linear(64, 64)
-        self.q = nn.Linear(64,  self.n_actions)
+        self.fc1 = nn.Linear(n_input_channels, 256)
+        self.fc2 = nn.Linear(256, 256)
+        self.q = nn.Linear(256,  self.n_actions)
 
     def forward(self, x):
         x = F.relu(self.fc1(x))

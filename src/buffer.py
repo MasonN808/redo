@@ -49,6 +49,10 @@ def get_obs_shape(observation_space: spaces.Space) -> Union[tuple[int, ...], Dic
     elif isinstance(observation_space, spaces.Dict):
         return {key: get_obs_shape(subspace) for (key, subspace) in observation_space.spaces.items()}  # type: ignore[misc]
     else:
+        # print(type(observation_space))
+        # print(type(spaces.Box(low=0., high=1., shape=(2,), dtype=np.float32)))
+        # print(isinstance(observation_space, spaces.Box))
+        # print(isinstance(observation_space, spaces.box.Box))
         raise NotImplementedError(f"{observation_space} observation space is not supported")
 
 

@@ -1,6 +1,10 @@
 import math
 from functools import partial
+from matplotlib.colors import LinearSegmentedColormap
+import numpy as np
+import seaborn as sns
 
+from matplotlib import pyplot as plt
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -60,6 +64,7 @@ def _get_activation(name: str, activations: dict[str, torch.Tensor]):
         Get the activations of a layer with relu nonlinearity.
         ReLU has to be called explicitly here because the hook is attached to the conv/linear layer.
         """
+        # IMPORTANT: this assumes that the activation between intermediate layers is ReLU
         activations[name] = F.relu(output)
 
     return hook
@@ -70,6 +75,14 @@ def _get_redo_masks(activations: dict[str, torch.Tensor], tau: float, using_kan:
     """
     Computes the ReDo mask for a given set of activations.
     The returned mask has True where neurons are dormant and False where they are active.
+
+    Args:
+        activations (dict[str, torch.Tensor]): A dictionary of activation tensors.
+        tau (float): The threshold value for determining dormant neurons.
+        using_kan (bool, optional): Whether KAN (Kalmagorov-Arnold Network) is being used. Defaults to False.
+
+    Returns:
+        torch.Tensor: The ReDo mask with True for dormant neurons and False for active neurons.
     """
     masks = []
     last_layer_idx = -1
@@ -178,6 +191,8 @@ def _reset_adam_moments(optimizer: optim.Adam, reset_masks: dict[str, torch.Tens
             # Standard case: layer and next_layer are both conv or both linear
             # Reset the outgoing weights to 0
             optimizer.state_dict()["state"][i * 2 + 2]["exp_avg"][:, mask, ...] = 0.0
+            # print(f"==>> optimizer.state_dict()['state'][i * 2 + 2]['exp_avg'].shape: {optimizer.state_dict()['state'][i * 2 + 2]['exp_avg'].shape}")
+            # print(f"==>> optimizer.state_dict()['state'][i * 2 + 2]['exp_avg']: {optimizer.state_dict()['state'][i * 2 + 2]['exp_avg']}")
             optimizer.state_dict()["state"][i * 2 + 2]["exp_avg_sq"][:, mask, ...] = 0.0
             optimizer.state_dict()["state"][i * 2 + 2]["step"].zero_()
 
@@ -209,6 +224,7 @@ def run_redo(
     re_initialize: bool,
     use_lecun_init: bool,
     use_or: bool = False,
+    activations_heatmap_path: str = None,
 ) -> tuple[nn.Module, optim.Adam, float, int]:
     """
     Checks the number of dormant neurons for a given model.
@@ -234,10 +250,8 @@ def run_redo(
         if type(model).__name__ == "SoftQNetwork":
             actions = batch.actions
             _ = model(obs, actions)
-        elif type(model).__name__ == "Actor" or type(model).__name__ == "QNetwork":
-            _ = model(obs)
         else:
-            raise ValueError
+            _ = model(obs)
 
         using_kan = False
         if type(model).__name__ == "QNetworkKAN":
@@ -249,6 +263,10 @@ def run_redo(
         # We combine them into one
         if using_kan:
             zero_masks = mask_join(zero_masks, use_or)
+
+        # Plot zero masks heatmap
+        if activations_heatmap_path:
+            plot_zero_masks_heatmap(zero_masks, activations_heatmap_path)
 
         total_neurons = sum([torch.numel(mask) for mask in zero_masks])
         zero_count = sum([torch.sum(mask) for mask in zero_masks])
@@ -286,3 +304,52 @@ def run_redo(
             "dormant_count": dormant_count,
         }
     
+def plot_zero_masks_heatmap(zero_masks, activations_heatmap_path):
+    # Convert zero_masks to a numpy array suitable for heatmap plotting
+    heatmap_data = []
+    for mask in zero_masks:
+        if len(mask.shape) == 4:  # Convolutional layer
+            reshaped_mask = mask.permute(0, 2, 3, 1).reshape(-1, mask.shape[1]).cpu().numpy()
+        else:  # Fully connected layer
+            reshaped_mask = mask.cpu().numpy()
+        
+        # Ensure reshaped_mask is 2D
+        if reshaped_mask.ndim == 1:
+            reshaped_mask = reshaped_mask.reshape(-1, 1)
+        
+        heatmap_data.append(reshaped_mask)
+
+    # Find the maximum width of the heatmaps
+    max_width = max(h.shape[1] for h in heatmap_data if h.ndim == 2)
+    # Find the maximum height of the heatmaps
+    max_height = max(h.shape[0] for h in heatmap_data if h.ndim == 2)
+
+    padded_heatmaps = []
+    for h in heatmap_data:
+        pad_height = max_height - h.shape[0] if h.ndim == 2 else 0
+        pad_width = max_width - h.shape[1] if h.ndim == 2 else 0
+        if pad_height > 0 or pad_width > 0:
+            padded_heatmap = np.pad(h,( (0, pad_height), (0, pad_width)), mode='constant', constant_values=np.nan)
+        else:
+            padded_heatmap = h
+        padded_heatmaps.append(padded_heatmap)
+    
+    combined_heatmap = np.concatenate(padded_heatmaps, axis=1)
+    
+    # Plot combined heatmap
+    plt.figure(figsize=(20, 10))
+
+    # Define colors
+    # colors = ((0.0, 1.0, 0.0), (1.0, 0.0, 0.0), (0.5, 0.5, 0.5))
+    colors = ((0.0, 1.0, 0.0), (1.0, 0.0, 0.0))
+    cmap = LinearSegmentedColormap.from_list('Custom', colors, len(colors))
+
+    ax = sns.heatmap(combined_heatmap, cmap=cmap, cbar=True)
+
+    # Set the colorbar labels
+    colorbar = ax.collections[0].colorbar
+    colorbar.set_ticks([0.25,0.75])
+    colorbar.set_ticklabels(['Non-dormant Activations', 'Dormant Activations'])
+    # sns.heatmap(combined_heatmap, cmap='coolwarm', cbar=True)
+    plt.title("Heatmap of activations")
+    plt.savefig(activations_heatmap_path + "_activation_heatmap.png")
