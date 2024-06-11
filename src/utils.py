@@ -23,7 +23,8 @@ from Minigrid.minigrid.wrappers import *
 
 ATARI_ENVS = [
     "ALE/DemonAttack-v5",
-    "ALE/Asterix-v5"
+    "ALE/Asterix-v5",
+    "ALE/SpaceInvaders-v5",
     # TODO: Fill this
 ]
 
