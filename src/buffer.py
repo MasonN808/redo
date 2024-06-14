@@ -4,6 +4,7 @@ https://github.com/DLR-RM/stable-baselines3/blob/master/stable_baselines3/common
 
 I've removed unneeded functionality and put all dependencies into a single file.
 """
+import copy
 import random
 import warnings
 from abc import ABC, abstractmethod
@@ -14,6 +15,7 @@ import psutil
 import torch
 from gymnasium import spaces
 from per_tree import SumTree
+from torch.utils.data import DataLoader, TensorDataset
 
 
 class ReplayBufferSamples(NamedTuple):
@@ -362,6 +364,165 @@ class ReplayBuffer(BaseBuffer):
             self.rewards[batch_inds, env_indices].reshape(-1, 1),
         )
         return ReplayBufferSamples(*tuple(map(self.to_torch, data)))
+    
+    def get_critical_transitions(self, qf, quantization_type="fp16", quantization_rand_prunning_fraction=.5, epsilon=.1, critical_value_eval_batch_size=256) -> ReplayBufferSamples:
+        """
+        Get the transitions that are critical for the agent to learn in the previous environment by the critcal quantization value (RRscore).
+        """
+        # TODO: Only works for one environement at a time
+        transitions = self.sample(self.size())
+        observations = transitions.observations
+        actions = transitions.actions
+        next_observations = transitions.next_observations
+        dones = transitions.dones
+        rewards = transitions.rewards
+        # observations = torch.tensor(transitions.observations)
+        # actions = torch.tensor(transitions.actions)
+        # next_observations = torch.tensor(transitions.next_observations)
+        # dones = torch.tensor(transitions.dones)
+        # rewards = torch.tensor(transitions.rewards)
+
+        dataset = TensorDataset(observations)
+        dataloader = DataLoader(dataset, batch_size=critical_value_eval_batch_size, shuffle=False)
+
+        # Initialize lists to store results
+        fp32_qf_a_values_list = []
+        quantized_qf_a_values_list = []
+
+        # Process batches
+        for obs_batch in dataloader:
+            obs_batch = obs_batch[0]
+            assert isinstance(obs_batch, torch.Tensor), "obs_batch is not a tensor"
+            # Get the critical transitions
+            with torch.no_grad():
+                # Get original model size values
+                fp32_qf_a_values_batch = qf(obs_batch).view(-1, obs_batch.size(0))
+                fp32_qf_a_values_list.append(fp32_qf_a_values_batch)
+                if quantization_type == "int8":
+                    # if qf_quantized is None:
+                    qf.qconfig = torch.quantization.get_default_qconfig('fbgemm')
+                    torch.backends.quantized.engine = "fbgemm"
+                    qf_prepared = torch.quantization.prepare(copy.deepcopy(qf), inplace=False)
+                    qf_prepared = qf_prepared.to('cpu')
+                    # Use 10 Samples NOTE: This could throw error so do fraction of obs tensor flat later
+                    calibration_data_obs = obs_batch[:10]
+                    qf_prepared(calibration_data_obs.to('cpu'))
+                    qf_quantized = torch.quantization.convert(qf_prepared, inplace=False)
+                    activation_observer = qf_prepared.fc1.activation_post_process
+                    scale_obs, zero_point_obs = activation_observer.calculate_qparams()
+                    inference_obs_data_q = torch.quantize_per_tensor(obs_batch.to('cpu'), scale=scale_obs, zero_point=zero_point_obs, dtype=torch.quint8).to("cpu")
+                    quantized_qf_a_values_batch = qf_quantized(inference_obs_data_q).view(-1, inference_obs_data_q.size(0)).dequantize()
+                elif quantization_type == "fp16":
+                    fp16_qf = copy.deepcopy(qf).half()
+                    quantized_qf_a_values_batch = fp16_qf(obs_batch.half()).view(-1, obs_batch.size(0))
+                elif quantization_type == "rand_prunning":
+                    # This will randomly reset model weights to 0 after every logging batch
+                    assert quantization_rand_prunning_fraction < 1 and quantization_rand_prunning_fraction >= 0, "Fraction of weights to be pruned must be greater than 0 and less than 1."
+                    def prune_weights(state_dict, indices, all_weights):
+                        # Set the selected indices to zero
+                        all_weights_flat = all_weights.clone()
+                        all_weights_flat[indices] = 0
+                        # Reconstruct the state_dict with pruned weights
+                        offset = 0
+                        for key in state_dict.keys():
+                            numel = state_dict[key].numel()
+                            state_dict[key] = all_weights_flat[offset:offset + numel].view_as(state_dict[key])
+                            offset += numel
+                        return state_dict
+
+                    pruned_qf = copy.deepcopy(qf)
+                    state_dict_1 = pruned_qf.state_dict()
+                    # Concatenate all the weights into a single tensor
+                    # Just use one of the networks to remove the same weights in both networks later
+                    all_weights_1 = torch.cat([w.flatten() for w in state_dict_1.values()])
+                    n = all_weights_1.numel()
+                    m = int(round(n * quantization_rand_prunning_fraction))
+                    if m > 0:
+                        # Randomly select indices to prune
+                        indices = np.random.choice(n, m, replace=False)
+                        state_dict_1 = prune_weights(state_dict_1, indices, all_weights_1)
+                        # Load the pruned weights back into the models
+                        pruned_qf.load_state_dict(state_dict_1)
+                    quantized_qf_a_values_batch = pruned_qf(obs_batch).view(-1, obs_batch.size(0))
+                else:
+                    NotImplementedError(f"Quantization Type not defined for {quantization_type}")
+                quantized_qf_a_values_list.append(quantized_qf_a_values_batch)
+
+        def pad_with_nan(tensor, target_size):
+            # Create a new tensor filled with NaN values
+            padded_tensor = torch.full((tensor.size(0), target_size), float('nan'))
+            # Copy the original tensor's values into the new tensor
+            padded_tensor[:, :tensor.size(1)] = tensor
+            return padded_tensor
+
+        
+        def remove_nan_columns(tensor):
+            # Create a mask for non-NaN values
+            non_nan_mask = ~torch.isnan(tensor)
+
+            # Remove all NaN values while maintaining the structure of the tensor
+            non_nan_values = tensor[non_nan_mask]
+
+            # Calculate the number of valid (non-NaN) columns
+            valid_cols = non_nan_mask.sum(dim=1).max().item()
+
+            # Reshape the non-NaN values back to the original number of rows with the calculated valid columns
+            cleaned_tensor = non_nan_values.view(tensor.size(0), valid_cols)
+
+            return cleaned_tensor
+        
+        # Pad the tensors to match the maximum size for tensor concatenation
+        fp32_qf_a_values_list = [pad_with_nan(t, critical_value_eval_batch_size) for t in fp32_qf_a_values_list]
+        quantized_qf_a_values_list = [pad_with_nan(t, critical_value_eval_batch_size) for t in quantized_qf_a_values_list]
+
+        # Concatenate batch results and reshape them to remove Nan values in next step by flattening all dims apart from first dim
+        # From https://stackoverflow.com/questions/64594493/filter-out-nan-values-from-a-pytorch-n-dimensional-tensor
+        # Concatenate along the columns
+        fp32_qf_a_values = torch.cat(fp32_qf_a_values_list, dim=1)
+        quantized_qf_a_values = torch.cat(quantized_qf_a_values_list, dim=1)
+
+        # fp32_qf_a_values = fp32_qf_a_values[~fp32_qf_a_values.isnan()]
+        # quantized_qf_a_values = quantized_qf_a_values[~quantized_qf_a_values.isnan()]
+        fp32_qf_a_values = remove_nan_columns(fp32_qf_a_values)
+        quantized_qf_a_values = remove_nan_columns(quantized_qf_a_values)
+
+        # Reshape the tensor
+        actions = actions.view(-1, 1)
+
+        # Transpose
+        fp32_qf_a_values = fp32_qf_a_values.transpose(0, 1)
+        quantized_qf_a_values = quantized_qf_a_values.transpose(0, 1)
+        # Gather Q-values for the specific actions
+        fp32_q_values = fp32_qf_a_values.gather(1, actions.to("cpu")).squeeze(1)
+        quantized_q_values = quantized_qf_a_values.gather(1, actions.to("cpu")).squeeze(1)
+
+        # Compute critical values
+        assert fp32_q_values.size() == quantized_q_values.size(), "Tensors must have the same size"
+
+        # Compute element-wise differences
+        differences = fp32_q_values - quantized_q_values
+        # Compute element-wise squared differences
+        squared_differences = differences.pow(2)
+        # Compute the RR scores for each sample
+        rr_scores = torch.sqrt(squared_differences)
+        print(f"==>> max rr_scores:", max(rr_scores))
+        print(f"==>> min rr_scores: {min(rr_scores)}")
+        
+        # Get indices where rr_scores > epsilon
+        indices = torch.nonzero(rr_scores > epsilon).flatten()
+
+        # Filter the transitions
+        data = (
+            observations[indices],
+            actions[indices],
+            next_observations[indices],
+            dones[indices],
+            rewards[indices],
+        )
+        print(f"==>> length of indices: {indices.size()}")
+        print(f"==>> length of data: {len(data)}")
+        return ReplayBufferSamples(*tuple(data))
+
 
 # Adapted from https://github.com/Howuhh/prioritized_experience_replay/blob/main/memory/tree.py
 # TODO: Use https://github.com/rlcode/per/blob/master/prioritized_memory.py as reference
