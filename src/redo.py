@@ -353,3 +353,4 @@ def plot_zero_masks_heatmap(zero_masks, activations_heatmap_path):
     # sns.heatmap(combined_heatmap, cmap='coolwarm', cbar=True)
     plt.title("Heatmap of activations")
     plt.savefig(activations_heatmap_path + "_activation_heatmap.png")
+    plt.close()
