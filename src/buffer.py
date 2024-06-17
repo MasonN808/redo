@@ -519,8 +519,110 @@ class ReplayBuffer(BaseBuffer):
             dones[indices],
             rewards[indices],
         )
-        print(f"==>> length of indices: {indices.size()}")
-        print(f"==>> length of data: {len(data)}")
+        # print(f"==>> length of indices: {indices.size()}")
+        # print(f"==>> length of data: {len(data)}")
+        return ReplayBufferSamples(*tuple(data))
+    
+    def pairwiseRR(self, qf1, qf2, external_buffer, epsilon=.1, critical_value_eval_batch_size=256) -> ReplayBufferSamples:
+        """
+        Get the transitions that are critical for the agent to learn in the previous environment by the critcal quantization value (RRscore).
+        """
+        # TODO: Only works for one environement at a time
+        transitions = self.sample(self.size())
+        external_transitions = external_buffer.sample(external_buffer.size())
+
+        # Combine Transitions
+        observations = torch.cat((transitions.observations, external_transitions.observations), dim=0)
+        actions = torch.cat((transitions.actions, external_transitions.actions), dim=0)
+        next_observations = torch.cat((transitions.next_observations, external_transitions.next_observations), dim=0)
+        dones = torch.cat((transitions.dones, external_transitions.dones), dim=0)
+        rewards = torch.cat((transitions.rewards, external_transitions.rewards), dim=0)
+
+        dataset = TensorDataset(observations)
+        dataloader = DataLoader(dataset, batch_size=critical_value_eval_batch_size, shuffle=False)
+
+        # Initialize lists to store results
+        qf1_values_list = []
+        qf2_values_list = []
+
+        # Process batches
+        for obs_batch in dataloader:
+            obs_batch = obs_batch[0]
+            assert isinstance(obs_batch, torch.Tensor), "obs_batch is not a tensor"
+            # Get the critical transitions
+            with torch.no_grad():
+                # Get original model size values
+                qf1_values_batch = qf1(obs_batch).view(-1, obs_batch.size(0))
+                qf2_values_batch = qf2(obs_batch).view(-1, obs_batch.size(0))
+                qf1_values_list.append(qf1_values_batch)
+                qf2_values_list.append(qf2_values_batch)
+
+        def pad_with_nan(tensor, target_size):
+            # Create a new tensor filled with NaN values
+            padded_tensor = torch.full((tensor.size(0), target_size), float('nan'))
+            # Copy the original tensor's values into the new tensor
+            padded_tensor[:, :tensor.size(1)] = tensor
+            return padded_tensor
+        
+        def remove_nan_columns(tensor):
+            # Create a mask for non-NaN values
+            non_nan_mask = ~torch.isnan(tensor)
+            # Remove all NaN values while maintaining the structure of the tensor
+            non_nan_values = tensor[non_nan_mask]
+            # Calculate the number of valid (non-NaN) columns
+            valid_cols = non_nan_mask.sum(dim=1).max().item()
+            # Reshape the non-NaN values back to the original number of rows with the calculated valid columns
+            cleaned_tensor = non_nan_values.view(tensor.size(0), valid_cols)
+            return cleaned_tensor
+        
+        # Pad the tensors to match the maximum size for tensor concatenation
+        qf1_values_list = [pad_with_nan(t, critical_value_eval_batch_size) for t in qf1_values_list]
+        qf2_values_list = [pad_with_nan(t, critical_value_eval_batch_size) for t in qf2_values_list]
+
+        # Concatenate batch results and reshape them to remove Nan values in next step by flattening all dims apart from first dim
+        # From https://stackoverflow.com/questions/64594493/filter-out-nan-values-from-a-pytorch-n-dimensional-tensor
+        # Concatenate along the columns
+        qf1_values = torch.cat(qf1_values_list, dim=1)
+        qf2_values = torch.cat(qf2_values_list, dim=1)
+
+        # fp32_qf_a_values = fp32_qf_a_values[~fp32_qf_a_values.isnan()]
+        # quantized_qf_a_values = quantized_qf_a_values[~quantized_qf_a_values.isnan()]
+        qf1_values = remove_nan_columns(qf1_values)
+        qf2_values = remove_nan_columns(qf2_values)
+
+        # Reshape the tensor
+        actions = actions.view(-1, 1)
+
+        # Transpose
+        qf1_values = qf1_values.transpose(0, 1)
+        qf2_values = qf2_values.transpose(0, 1)
+        # Gather Q-values for the specific actions
+        qf1_values = qf1_values.gather(1, actions.to("cpu")).squeeze(1)
+        qf2_values = qf2_values.gather(1, actions.to("cpu")).squeeze(1)
+
+        # Compute critical values
+        assert qf1_values.size() == qf1_values.size(), "Tensors must have the same size"
+
+        # Compute element-wise differences
+        differences = qf1_values - qf2_values
+        # Compute element-wise squared differences
+        squared_differences = differences.pow(2)
+        # Compute the RR scores for each sample
+        rr_scores = torch.sqrt(squared_differences)
+        print(f"==>> max rr_scores: {max(rr_scores)}")
+        print(f"==>> min rr_scores: {min(rr_scores)}")
+        
+        # Get indices where rr_scores > epsilon
+        indices = torch.nonzero(rr_scores > epsilon).flatten()
+
+        # Filter the transitions
+        data = (
+            observations[indices],
+            actions[indices],
+            next_observations[indices],
+            dones[indices],
+            rewards[indices],
+        )
         return ReplayBufferSamples(*tuple(data))
 
 
