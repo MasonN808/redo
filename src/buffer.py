@@ -404,12 +404,12 @@ class ReplayBuffer(BaseBuffer):
         )
         return ReplayBufferSamples(*tuple(map(self.to_torch, data)))
     
-    def get_critical_transitions(self, qf, quantization_type="fp16", quantization_rand_prunning_fraction=.5, epsilon=.1, critical_value_eval_batch_size=256) -> ReplayBufferSamples:
+    def quantizationeRR(self, qf, quantization_type="fp16", quantization_rand_prunning_fraction=.5, epsilon=.1, critical_value_eval_batch_size=256) -> ReplayBufferSamples:
         """
         Get the transitions that are critical for the agent to learn in the previous environment by the critcal quantization value (RRscore).
         """
         # TODO: Only works for one environement at a time
-        transitions = self.sample(self.size())
+        transitions = self.sample(self.pos)
         observations = transitions.observations
         actions = transitions.actions
         next_observations = transitions.next_observations
@@ -570,9 +570,9 @@ class ReplayBuffer(BaseBuffer):
         # Loop through multiple paritions of the replay buffers to avoid OOM leaks
         # transitions = self.sample(self.size())
         # external_transitions = external_buffer.sample(external_buffer.size())
-        print(f"==>> external_buffer.size(): {external_buffer.size()}")
-        print(f"==>> self.size(): {self.size()}")
-        size = max(self.size(), external_buffer.size())
+        print(f"==>> external_buffer.pos: {external_buffer.pos}")
+        print(f"==>> self.pos: {self.pos}")
+        size = max(self.pos, external_buffer.pos)
         partition_count = max(size // 100, 1)  # Adjust partition count as needed
         transition_partitions = self.get_n_partitions(partition_count)
         external_transition_partitions = external_buffer.get_n_partitions(partition_count)
