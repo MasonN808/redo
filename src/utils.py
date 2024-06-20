@@ -26,7 +26,6 @@ ATARI_ENVS = [
     "ALE/Asterix-v5",
     "ALE/SpaceInvaders-v5",
     "ALE/Pong-v5",
-    # TODO: Fill this
 ]
 
 MINIGRID_ENVS = [
@@ -36,20 +35,19 @@ MINIGRID_ENVS = [
     'MiniGrid-MultiSkill-N2-v0',
 ]
 
-def make_env(env_id, seed, idx, capture_video, run_name):
-    """Helper function to create an environment with some standard wrappers.
-
-    Taken from cleanRL's DQN Atari implementation: https://github.com/vwxyzjn/cleanrl/blob/master/cleanrl/dqn_atari.py.
-    """
+def make_env(env_params: typing.Dict[str, Any], seed: int, idx: int, capture_video: bool, run_name: str):
+    """Helper function to create an environment with some standard wrappers."""
 
     def thunk():
+        env_name = env_params.pop("env_name")
+        
         if capture_video and idx == 0:
-            env = gym.make(env_id, render_mode="rgb_array")
+            env = gym.make(env_name, render_mode="rgb_array", **env_params)
             env = gym.wrappers.RecordVideo(env, f"videos/{run_name}")
         else:
-            env = gym.make(env_id)
+            env = gym.make(env_name, **env_params)
 
-        if env_id in ATARI_ENVS:
+        if env_name in ATARI_ENVS:
             env = NoopResetEnv(env, noop_max=30)
             env = MaxAndSkipEnv(env, skip=4)
             env = EpisodicLifeEnv(env)
@@ -60,10 +58,9 @@ def make_env(env_id, seed, idx, capture_video, run_name):
             env = gym.wrappers.GrayScaleObservation(env)
             env = gym.wrappers.FrameStack(env, 4)
 
-        if env_id in MINIGRID_ENVS:
-            # env = RGBImgPartialObsWrapper(env)  # Get rid of the 'mission' field
-            env = ImgObsWrapper(env) # Gets rid of the dictionary like observations with singleton key of 'image' after RGBImgPartialObsWrapper
-            # env = ActionBonus(env)
+        if env_name in MINIGRID_ENVS:
+            env = ImgObsWrapper(env)
+            
         env = gym.wrappers.RecordEpisodeStatistics(env)
         env.action_space.seed(seed)
 
