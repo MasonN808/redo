@@ -404,22 +404,20 @@ class ReplayBuffer(BaseBuffer):
         )
         return ReplayBufferSamples(*tuple(map(self.to_torch, data)))
     
-    def quantizationeRR(self, qf, quantization_type="fp16", quantization_rand_prunning_fraction=.5, epsilon=.1, critical_value_eval_batch_size=256) -> ReplayBufferSamples:
+    def quantizationRR(self, qf, quantization_type="fp16", quantization_rand_prunning_fraction=.5, epsilon=.1, critical_value_eval_batch_size=256) -> ReplayBufferSamples:
         """
         Get the transitions that are critical for the agent to learn in the previous environment by the critcal quantization value (RRscore).
         """
         # TODO: Only works for one environement at a time
+        # Get all the transitions from the replay buffer
         transitions = self.sample(self.pos)
+        print(f"==>> self.pos: {self.pos}")
         observations = transitions.observations
+        print(f"==>> observations.shape: {observations.shape}")
         actions = transitions.actions
         next_observations = transitions.next_observations
         dones = transitions.dones
         rewards = transitions.rewards
-        # observations = torch.tensor(transitions.observations)
-        # actions = torch.tensor(transitions.actions)
-        # next_observations = torch.tensor(transitions.next_observations)
-        # dones = torch.tensor(transitions.dones)
-        # rewards = torch.tensor(transitions.rewards)
 
         dataset = TensorDataset(observations)
         dataloader = DataLoader(dataset, batch_size=critical_value_eval_batch_size, shuffle=False)
@@ -511,7 +509,9 @@ class ReplayBuffer(BaseBuffer):
             return cleaned_tensor
         
         # Pad the tensors to match the maximum size for tensor concatenation
+        print(f"==>> fp32_qf_a_values_list: {len(fp32_qf_a_values_list)}")
         fp32_qf_a_values_list = [pad_with_nan(t, critical_value_eval_batch_size) for t in fp32_qf_a_values_list]
+        print(f"==>> fp32_qf_a_values_list: {len(fp32_qf_a_values_list)}")
         quantized_qf_a_values_list = [pad_with_nan(t, critical_value_eval_batch_size) for t in quantized_qf_a_values_list]
 
         # Concatenate batch results and reshape them to remove Nan values in next step by flattening all dims apart from first dim
@@ -520,8 +520,6 @@ class ReplayBuffer(BaseBuffer):
         fp32_qf_a_values = torch.cat(fp32_qf_a_values_list, dim=1)
         quantized_qf_a_values = torch.cat(quantized_qf_a_values_list, dim=1)
 
-        # fp32_qf_a_values = fp32_qf_a_values[~fp32_qf_a_values.isnan()]
-        # quantized_qf_a_values = quantized_qf_a_values[~quantized_qf_a_values.isnan()]
         fp32_qf_a_values = remove_nan_columns(fp32_qf_a_values)
         quantized_qf_a_values = remove_nan_columns(quantized_qf_a_values)
 
