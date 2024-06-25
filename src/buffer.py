@@ -16,6 +16,8 @@ import torch
 from gymnasium import spaces
 from per_tree import SumTree
 from torch.utils.data import DataLoader, TensorDataset
+import time
+import timeit
 
 
 class ReplayBufferSamples(NamedTuple):
@@ -404,7 +406,7 @@ class ReplayBuffer(BaseBuffer):
         )
         return ReplayBufferSamples(*tuple(map(self.to_torch, data)))
     
-    def quantizationRR(self, qf, quantization_type="fp16", quantization_rand_prunning_fraction=.5, epsilon=.1, critical_value_eval_batch_size=256) -> ReplayBufferSamples:
+    def quantization_transitions(self, qf, quantization_type="fp16", quantization_rand_prunning_fraction=.5, epsilon=.1, critical_value_eval_batch_size=256) -> ReplayBufferSamples:
         """
         Get the transitions that are critical for the agent to learn in the previous environment by the critcal quantization value (RRscore).
         """
@@ -534,16 +536,186 @@ class ReplayBuffer(BaseBuffer):
         # Compute element-wise squared differences
         squared_differences = differences.pow(2)
         # Compute the RR scores for each sample
-        rr_scores = torch.sqrt(squared_differences)
+        critical_scores = torch.sqrt(squared_differences)
 
-        logs["score_logs/max_rr_scores"] = max(rr_scores).item()
-        logs["score_logs/min_rr_scores"] = min(rr_scores).item()
-        logs["score_logs/mean_rr_scores"] = torch.mean(rr_scores).item()
-        logs["score_logs/std_rr_scores"] = torch.std(rr_scores).item()
-        logs["score_logs/median_rr_scores"] = torch.median(rr_scores).item()
+        logs["score_logs/max_critical_scores"] = max(critical_scores).item()
+        logs["score_logs/min_critical_scores"] = min(critical_scores).item()
+        logs["score_logs/mean_critical_scores"] = torch.mean(critical_scores).item()
+        logs["score_logs/std_critical_scores"] = torch.std(critical_scores).item()
+        logs["score_logs/median_critical_scores"] = torch.median(critical_scores).item()
 
-        # Get indices where rr_scores > epsilon
-        indices = torch.nonzero(rr_scores > epsilon).flatten()
+        # Get indices where critical_scores > epsilon
+        indices = torch.nonzero(critical_scores > epsilon).flatten()
+
+        # Filter the transitions
+        data = (
+            observations[indices],
+            actions[indices],
+            next_observations[indices],
+            dones[indices],
+            rewards[indices],
+        )
+        return ReplayBufferSamples(*tuple(data)), logs
+    
+    def fatal_transitions(self, qf, k=1000, critical_value_eval_batch_size=256) -> ReplayBufferSamples:
+        """
+        Get the transitions that are critical for the agent to learn in the previous environment by the critcal quantization value (RRscore).
+        """
+        logs = {}
+        # TODO: Only works for one environement at a time
+        # Get all the transitions from the replay buffer
+        transitions = self.sample(self.pos)
+
+        observations = transitions.observations
+        actions = transitions.actions
+        next_observations = transitions.next_observations
+        dones = transitions.dones
+        rewards = transitions.rewards
+
+        dataset = TensorDataset(observations)
+        dataloader = DataLoader(dataset, batch_size=critical_value_eval_batch_size, shuffle=False)
+
+        # Initialize lists to store results
+        q_values = []
+
+        # Process batches
+        for obs_batch in dataloader:
+            obs_batch = obs_batch[0]
+            assert isinstance(obs_batch, torch.Tensor), "obs_batch is not a tensor"
+            # Get the critical transitions
+            with torch.no_grad():
+                # Get original model size values
+                q_values_batch = qf(obs_batch).view(-1, obs_batch.size(0))
+                q_values.append(q_values_batch)
+
+        def pad_with_nan(tensor, target_size):
+            # Create a new tensor filled with NaN values
+            padded_tensor = torch.full((tensor.size(0), target_size), float('nan'))
+            # Copy the original tensor's values into the new tensor
+            padded_tensor[:, :tensor.size(1)] = tensor
+            return padded_tensor
+
+        def remove_nan_columns(tensor):
+            # Create a mask for non-NaN values
+            non_nan_mask = ~torch.isnan(tensor)
+            # Remove all NaN values while maintaining the structure of the tensor
+            non_nan_values = tensor[non_nan_mask]
+            # Calculate the number of valid (non-NaN) columns
+            valid_cols = non_nan_mask.sum(dim=1).max().item()
+            # Reshape the non-NaN values back to the original number of rows with the calculated valid columns
+            cleaned_tensor = non_nan_values.view(tensor.size(0), valid_cols)
+            return cleaned_tensor
+        
+        # Pad the tensors to match the maximum size for tensor concatenation
+        q_values = [pad_with_nan(t, critical_value_eval_batch_size) for t in q_values]
+        # Concatenate batch results and reshape them to remove Nan values in next step by flattening all dims apart from first dim
+        # From https://stackoverflow.com/questions/64594493/filter-out-nan-values-from-a-pytorch-n-dimensional-tensor
+        # Concatenate along the columns
+        q_values = torch.cat(q_values, dim=1)
+        q_values = remove_nan_columns(q_values)
+
+        # Compute critical scores elementwise
+        # TODO: Possibly artificially generate transitions with the highest and lowest critical scores and place them in the global buffer
+        critical_scores = torch.abs(torch.max(q_values, dim=0)[0] - torch.min(q_values, dim=0)[0]).unsqueeze(1).squeeze()  # Shape: [num_obs]
+
+        logs["score_logs/max_critical_scores"] = max(critical_scores).item()
+        logs["score_logs/min_critical_scores"] = min(critical_scores).item()
+        logs["score_logs/mean_critical_scores"] = torch.mean(critical_scores).item()
+        logs["score_logs/std_critical_scores"] = torch.std(critical_scores).item()
+        logs["score_logs/median_critical_scores"] = torch.median(critical_scores).item()
+
+        sorted_scores, sorted_indices = torch.sort(critical_scores, descending=True)
+
+        # Ensure k does not exceed the number of elements
+        k = min(k, len(sorted_indices))
+        indices = sorted_indices[:k]
+
+        # Get indices where critical_scores > epsilon
+        # indices = torch.nonzero(critical_scores > epsilon).flatten()
+
+        # Filter the transitions
+        data = (
+            observations[indices],
+            actions[indices],
+            next_observations[indices],
+            dones[indices],
+            rewards[indices],
+        )
+        return ReplayBufferSamples(*tuple(data)), logs
+    
+    def coverage_transitions(self, k=40000, d=.5) -> ReplayBufferSamples:
+        """
+        Model-agnostic sampler
+        """
+        logs = {}
+        # TODO: Only works for one environement at a time
+        # Get all the transitions from the replay buffer
+        transitions = self.sample(self.pos)
+        observations = transitions.observations
+        actions = transitions.actions
+        next_observations = transitions.next_observations
+        dones = transitions.dones
+        rewards = transitions.rewards
+
+        s_coverage = np.zeros(len(transitions))
+
+        # Compute the distance between transitions
+        def compute_distance(e1, e2):
+            return np.linalg.norm(e1 - e2)
+
+        start_time = time.time()
+
+        for i, e_i in enumerate(transitions):
+            count = 0
+            for j, e_j in enumerate(transitions):
+                if i != j and compute_distance(e_i, e_j) < d:
+                    count += 1
+            s_coverage[i] = -count
+
+        end_time = time.time()
+        execution_time = end_time - start_time
+
+        print(f"Execution time: {execution_time} seconds")
+        print(f"==>> s_coverage: {s_coverage}")
+
+        # Compute the pairwise distances between all transitions
+        start_time = timeit.time()
+        pairwise_distances = np.linalg.norm(transitions[:, np.newaxis] - transitions[np.newaxis, :], axis=-1)
+
+        print(f"==>> pairwise_distances: {pairwise_distances}")
+        print(f"==>> transitions.shape: {transitions.shape}")
+        print(f"==>> pairwise_distances.shape: {pairwise_distances.shape}")
+
+        # Count the number of transitions within the distance threshold for each transition
+        within_distance = (pairwise_distances < d) & (pairwise_distances > 0)  # Exclude self-distance
+        print(f"==>> within_distance: {within_distance}")
+        print(f"==>> within_distance.shape: {within_distance.shape}")
+
+        # Sum the number of such transitions for each transition
+        s_coverage = -np.sum(within_distance, axis=1)
+
+        end_time = timeit.time()
+        print(f"Time taken to compute pairwise distances: {end_time - start_time} seconds")
+        print(f"==>> s_coverage: {s_coverage}")
+
+        sorted_scores, sorted_indices = torch.sort(s_coverage, descending=True)
+
+        # Ensure k does not exceed the number of elements
+        k = min(k, len(sorted_indices))
+        indices = sorted_indices[:k]
+        print(f"==>> indices.shape: {indices.shape}")
+        
+
+        exit()
+
+        logs["score_logs/max_critical_scores"] = max(critical_scores).item()
+        logs["score_logs/min_critical_scores"] = min(critical_scores).item()
+        logs["score_logs/mean_critical_scores"] = torch.mean(critical_scores).item()
+        logs["score_logs/std_critical_scores"] = torch.std(critical_scores).item()
+        logs["score_logs/median_critical_scores"] = torch.median(critical_scores).item()
+
+        # Get indices where critical_scores > epsilon
+        indices = torch.nonzero(critical_scores > epsilon).flatten()
 
         # Filter the transitions
         data = (
