@@ -408,12 +408,12 @@ class ReplayBuffer(BaseBuffer):
         """
         Get the transitions that are critical for the agent to learn in the previous environment by the critcal quantization value (RRscore).
         """
+        logs = {}
         # TODO: Only works for one environement at a time
         # Get all the transitions from the replay buffer
         transitions = self.sample(self.pos)
         print(f"==>> self.pos: {self.pos}")
         observations = transitions.observations
-        print(f"==>> observations.shape: {observations.shape}")
         actions = transitions.actions
         next_observations = transitions.next_observations
         dones = transitions.dones
@@ -492,26 +492,19 @@ class ReplayBuffer(BaseBuffer):
             padded_tensor[:, :tensor.size(1)] = tensor
             return padded_tensor
 
-        
         def remove_nan_columns(tensor):
             # Create a mask for non-NaN values
             non_nan_mask = ~torch.isnan(tensor)
-
             # Remove all NaN values while maintaining the structure of the tensor
             non_nan_values = tensor[non_nan_mask]
-
             # Calculate the number of valid (non-NaN) columns
             valid_cols = non_nan_mask.sum(dim=1).max().item()
-
             # Reshape the non-NaN values back to the original number of rows with the calculated valid columns
             cleaned_tensor = non_nan_values.view(tensor.size(0), valid_cols)
-
             return cleaned_tensor
         
         # Pad the tensors to match the maximum size for tensor concatenation
-        print(f"==>> fp32_qf_a_values_list: {len(fp32_qf_a_values_list)}")
         fp32_qf_a_values_list = [pad_with_nan(t, critical_value_eval_batch_size) for t in fp32_qf_a_values_list]
-        print(f"==>> fp32_qf_a_values_list: {len(fp32_qf_a_values_list)}")
         quantized_qf_a_values_list = [pad_with_nan(t, critical_value_eval_batch_size) for t in quantized_qf_a_values_list]
 
         # Concatenate batch results and reshape them to remove Nan values in next step by flattening all dims apart from first dim
@@ -542,9 +535,13 @@ class ReplayBuffer(BaseBuffer):
         squared_differences = differences.pow(2)
         # Compute the RR scores for each sample
         rr_scores = torch.sqrt(squared_differences)
-        print(f"==>> max rr_scores:", max(rr_scores))
-        print(f"==>> min rr_scores: {min(rr_scores)}")
-        
+
+        logs["score_logs/max_rr_scores"] = max(rr_scores).item()
+        logs["score_logs/min_rr_scores"] = min(rr_scores).item()
+        logs["score_logs/mean_rr_scores"] = torch.mean(rr_scores).item()
+        logs["score_logs/std_rr_scores"] = torch.std(rr_scores).item()
+        logs["score_logs/median_rr_scores"] = torch.median(rr_scores).item()
+
         # Get indices where rr_scores > epsilon
         indices = torch.nonzero(rr_scores > epsilon).flatten()
 
@@ -556,9 +553,7 @@ class ReplayBuffer(BaseBuffer):
             dones[indices],
             rewards[indices],
         )
-        # print(f"==>> length of indices: {indices.size()}")
-        # print(f"==>> length of data: {len(data)}")
-        return ReplayBufferSamples(*tuple(data))
+        return ReplayBufferSamples(*tuple(data)), logs
     
     def pairwiseRR(self, qf1, qf2, external_buffer, epsilon=.1, critical_value_eval_batch_size=256) -> ReplayBufferSamples:
         """
