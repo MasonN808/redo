@@ -8,7 +8,7 @@ import copy
 import random
 import warnings
 from abc import ABC, abstractmethod
-from typing import Any, Dict, NamedTuple, Union
+from typing import Any, Dict, NamedTuple, Tuple, Union
 
 import numpy as np
 import psutil
@@ -406,21 +406,7 @@ class ReplayBuffer(BaseBuffer):
         )
         return ReplayBufferSamples(*tuple(map(self.to_torch, data)))
     
-    def quantization_transitions(self, qf, quantization_type="fp16", quantization_rand_prunning_fraction=.5, epsilon=.1, critical_value_eval_batch_size=256) -> ReplayBufferSamples:
-        """
-        Get the transitions that are critical for the agent to learn in the previous environment by the critcal quantization value (RRscore).
-        """
-        logs = {}
-        # TODO: Only works for one environement at a time
-        # Get all the transitions from the replay buffer
-        transitions = self.sample(self.pos)
-        print(f"==>> self.pos: {self.pos}")
-        observations = transitions.observations
-        actions = transitions.actions
-        next_observations = transitions.next_observations
-        dones = transitions.dones
-        rewards = transitions.rewards
-
+    def quantization_scores(self, observations, actions, qf, logs=None, quantization_type="fp16", quantization_rand_prunning_fraction=.5, critical_value_eval_batch_size=256) -> Tuple[torch.Tensor, torch.Tensor, Dict[str, Any]]:
         dataset = TensorDataset(observations)
         dataloader = DataLoader(dataset, batch_size=critical_value_eval_batch_size, shuffle=False)
 
@@ -538,14 +524,44 @@ class ReplayBuffer(BaseBuffer):
         # Compute the RR scores for each sample
         critical_scores = torch.sqrt(squared_differences)
 
-        logs["score_logs/max_critical_scores"] = max(critical_scores).item()
-        logs["score_logs/min_critical_scores"] = min(critical_scores).item()
-        logs["score_logs/mean_critical_scores"] = torch.mean(critical_scores).item()
-        logs["score_logs/std_critical_scores"] = torch.std(critical_scores).item()
-        logs["score_logs/median_critical_scores"] = torch.median(critical_scores).item()
+        if logs is not None:
+            logs["score_logs/max_critical_scores"] = max(critical_scores).item()
+            logs["score_logs/min_critical_scores"] = min(critical_scores).item()
+            logs["score_logs/mean_critical_scores"] = torch.mean(critical_scores).item()
+            logs["score_logs/std_critical_scores"] = torch.std(critical_scores).item()
+            logs["score_logs/median_critical_scores"] = torch.median(critical_scores).item()
 
-        # Get indices where critical_scores > epsilon
-        indices = torch.nonzero(critical_scores > epsilon).flatten()
+            return critical_scores, {}
+
+        return critical_scores, logs
+
+
+    def quantization_transitions(self, qf, quantization_type="fp16", quantization_rand_prunning_fraction=.5, epsilon=.1, critical_value_eval_batch_size=256) -> ReplayBufferSamples:
+        """
+        Get the transitions that are critical for the agent to learn in the previous environment by the critcal quantization value (RRscore).
+        """
+        logs = {}
+        # TODO: Only works for one environement at a time
+        # Get all the transitions from the replay buffer
+        transitions = self.sample(self.pos)
+        observations = transitions.observations
+        actions = transitions.actions
+        next_observations = transitions.next_observations
+        dones = transitions.dones
+        rewards = transitions.rewards
+        
+        critical_scores, logs = self.quantization_scores(observations, actions, qf, logs, quantization_type, quantization_rand_prunning_fraction, critical_value_eval_batch_size)
+        assert logs != {}, "logs is empty."
+
+        mean_critical_score = torch.mean(critical_scores).item()
+        mask = critical_scores > mean_critical_score
+        indices = torch.nonzero(mask).squeeze()
+        # Get the elements that are larger than the threshold
+        # masked_critical_scores = critical_scores[mask]
+
+        # Ensure k does not exceed the number of elements
+        # k = min(k, len(sorted_indices))
+        # top_k_indices = sorted_indices[:k]
 
         # Filter the transitions
         data = (
@@ -557,21 +573,8 @@ class ReplayBuffer(BaseBuffer):
         )
         return ReplayBufferSamples(*tuple(data)), logs
     
-    def fatal_transitions(self, qf, k=1000, critical_value_eval_batch_size=256) -> ReplayBufferSamples:
-        """
-        Get the transitions that are critical for the agent to learn in the previous environment by the critcal quantization value (RRscore).
-        """
-        logs = {}
-        # TODO: Only works for one environement at a time
-        # Get all the transitions from the replay buffer
-        transitions = self.sample(self.pos)
 
-        observations = transitions.observations
-        actions = transitions.actions
-        next_observations = transitions.next_observations
-        dones = transitions.dones
-        rewards = transitions.rewards
-
+    def fatal_scores(self, observations, qf, logs=None, critical_value_eval_batch_size=256) -> Tuple[torch.Tensor, Dict[str, Any]]:
         dataset = TensorDataset(observations)
         dataloader = DataLoader(dataset, batch_size=critical_value_eval_batch_size, shuffle=False)
 
@@ -618,20 +621,54 @@ class ReplayBuffer(BaseBuffer):
         # TODO: Possibly artificially generate transitions with the highest and lowest critical scores and place them in the global buffer
         critical_scores = torch.abs(torch.max(q_values, dim=0)[0] - torch.min(q_values, dim=0)[0]).unsqueeze(1).squeeze()  # Shape: [num_obs]
 
-        logs["score_logs/max_critical_scores"] = max(critical_scores).item()
-        logs["score_logs/min_critical_scores"] = min(critical_scores).item()
-        logs["score_logs/mean_critical_scores"] = torch.mean(critical_scores).item()
-        logs["score_logs/std_critical_scores"] = torch.std(critical_scores).item()
-        logs["score_logs/median_critical_scores"] = torch.median(critical_scores).item()
+        if logs is not None:
+            logs["score_logs/max_critical_scores"] = max(critical_scores).item()
+            logs["score_logs/min_critical_scores"] = min(critical_scores).item()
+            logs["score_logs/mean_critical_scores"] = torch.mean(critical_scores).item()
+            logs["score_logs/std_critical_scores"] = torch.std(critical_scores).item()
+            logs["score_logs/median_critical_scores"] = torch.median(critical_scores).item()
 
-        sorted_scores, sorted_indices = torch.sort(critical_scores, descending=True)
+            return critical_scores, {}
+
+        return critical_scores, logs
+    
+    def fatal_transitions(self, qf, k=1000, critical_value_eval_batch_size=256) -> ReplayBufferSamples:
+        """
+        Get the transitions that are critical for the agent to learn in the previous environment by the critcal quantization value (RRscore).
+
+        Parameters:
+            qf (QNetwork object): The Q-function used to calculate the critical quantization value.
+            k (int): The number of transitions to select as critical. Default is 1000.
+            critical_value_eval_batch_size (int): The batch size used to avoid OOM when passing obs through qf. Default is 256.
+
+        Returns:
+            ReplayBufferSamples: A tuple containing filtered transitions.
+            logs: A dictionary of logs.
+        """
+        logs = {}
+        # TODO: Only works for one environement at a time
+        # Get all the transitions from the replay buffer
+        transitions = self.sample(self.pos)
+
+        observations = transitions.observations
+        actions = transitions.actions
+        next_observations = transitions.next_observations
+        dones = transitions.dones
+        rewards = transitions.rewards
+
+        
+        critical_scores, logs = self.fatal_scores(observations, qf, logs, k, critical_value_eval_batch_size)
+        assert logs != {}, "logs is empty."
+
+        mean_critical_score = torch.mean(critical_scores).item()
+        mask = critical_scores > mean_critical_score
+        indices = torch.nonzero(mask).squeeze()
+        # Get the elements that are larger than the threshold
+        # masked_critical_scores = critical_scores[mask]
 
         # Ensure k does not exceed the number of elements
-        k = min(k, len(sorted_indices))
-        indices = sorted_indices[:k]
-
-        # Get indices where critical_scores > epsilon
-        # indices = torch.nonzero(critical_scores > epsilon).flatten()
+        # k = min(k, len(sorted_indices))
+        # top_k_indices = sorted_indices[:k]
 
         # Filter the transitions
         data = (
@@ -656,18 +693,33 @@ class ReplayBuffer(BaseBuffer):
         next_observations = transitions.next_observations
         dones = transitions.dones
         rewards = transitions.rewards
+                                                                                                                                                                                                                                                                                                                                         
+        # Convert transitions into a list of lists
+        transition_list = []
+        for i in range(observations.shape[0]):
+            transition = np.concatenate([
+                observations[i].cpu().numpy().flatten(),
+                actions[i].cpu().numpy().flatten(),
+                next_observations[i].cpu().numpy().flatten(),
+                dones[i].cpu().numpy().flatten(),
+                rewards[i].cpu().numpy().flatten()
+            ])
+            transition_list.append(transition)
 
-        s_coverage = np.zeros(len(transitions))
+        transition_list = np.array(transition_list)
+        s_coverage = np.zeros(len(transition_list))
 
         # Compute the distance between transitions
         def compute_distance(e1, e2):
+            # print(f"==>> np.linalg.norm(e1 - e2): {np.linalg.norm(e1 - e2)}")
             return np.linalg.norm(e1 - e2)
 
         start_time = time.time()
 
-        for i, e_i in enumerate(transitions):
+        print(f"==>> transitions.shape: {transition_list.shape}")
+        for i, e_i in enumerate(transition_list):
             count = 0
-            for j, e_j in enumerate(transitions):
+            for j, e_j in enumerate(transition_list):
                 if i != j and compute_distance(e_i, e_j) < d:
                     count += 1
             s_coverage[i] = -count
@@ -676,25 +728,25 @@ class ReplayBuffer(BaseBuffer):
         execution_time = end_time - start_time
 
         print(f"Execution time: {execution_time} seconds")
-        print(f"==>> s_coverage: {s_coverage}")
+        print(f"==>> s_coverage: {s_coverage[:100]}")
 
         # Compute the pairwise distances between all transitions
-        start_time = timeit.time()
-        pairwise_distances = np.linalg.norm(transitions[:, np.newaxis] - transitions[np.newaxis, :], axis=-1)
+        start_time = time.time()
+        pairwise_distances = np.linalg.norm(transition_list[:, np.newaxis] - transition_list[np.newaxis, :], axis=-1)
 
-        print(f"==>> pairwise_distances: {pairwise_distances}")
-        print(f"==>> transitions.shape: {transitions.shape}")
+        print(f"==>> pairwise_distances: {pairwise_distances[:100]}")
+        print(f"==>> transitions.shape: {transition_list.shape}")
         print(f"==>> pairwise_distances.shape: {pairwise_distances.shape}")
 
         # Count the number of transitions within the distance threshold for each transition
         within_distance = (pairwise_distances < d) & (pairwise_distances > 0)  # Exclude self-distance
-        print(f"==>> within_distance: {within_distance}")
+        print(f"==>> within_distance: {within_distance[:100]}")
         print(f"==>> within_distance.shape: {within_distance.shape}")
 
         # Sum the number of such transitions for each transition
         s_coverage = -np.sum(within_distance, axis=1)
 
-        end_time = timeit.time()
+        end_time = time.time()
         print(f"Time taken to compute pairwise distances: {end_time - start_time} seconds")
         print(f"==>> s_coverage: {s_coverage}")
 
@@ -717,6 +769,44 @@ class ReplayBuffer(BaseBuffer):
         # Get indices where critical_scores > epsilon
         indices = torch.nonzero(critical_scores > epsilon).flatten()
 
+        # Filter the transitions
+        data = (
+            observations[indices],
+            actions[indices],
+            next_observations[indices],
+            dones[indices],
+            rewards[indices],
+        )
+        return ReplayBufferSamples(*tuple(data)), logs
+    
+    def bayesian_transitions(self, lambdas: dict, bayesian_update_strats: list[str], qf, k, d, quantization_type, quantization_rand_prunning_fraction) -> Tuple[ReplayBufferSamples, dict, dict]:
+        """
+        Get the transitions with highest linear score for different selection strategies
+        """
+        transitions = self.sample(self.pos)
+        observations = transitions.observations
+        actions = transitions.actions
+        next_observations = transitions.next_observations
+        dones = transitions.dones
+        rewards = transitions.rewards
+        logs = {}
+
+        scores = torch.zeros(observations.shape[0], dtype=torch.float32)
+        if "fatality" in bayesian_update_strats:
+            fatal_scores, logs = self.fatal_scores(observations, qf, logs)
+            fatal_scores = fatal_scores * lambdas["fatality"]
+            scores += fatal_scores
+        if "quantization" in bayesian_update_strats:
+            quantization_scores, logs = self.quantization_scores(observations, actions, qf, logs, quantization_type, quantization_rand_prunning_fraction)
+            quantization_scores = quantization_scores * lambdas["quantization"]
+            scores += quantization_scores
+        if "coverage" in bayesian_update_strats:
+            NotImplemented
+
+        # Use all transitions that have a score above the mean
+        mean_score = torch.mean(scores).item()
+        mask = scores >= mean_score
+        indices = torch.nonzero(mask).squeeze()
         # Filter the transitions
         data = (
             observations[indices],
