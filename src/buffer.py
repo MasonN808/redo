@@ -779,7 +779,7 @@ class ReplayBuffer(BaseBuffer):
         )
         return ReplayBufferSamples(*tuple(data)), logs
     
-    def bayesian_transitions(self, lambdas: dict, bayesian_update_strats: list[str], qf, k, d, quantization_type, quantization_rand_prunning_fraction) -> Tuple[ReplayBufferSamples, dict, dict]:
+    def bayesian_transitions(self, lambdas: dict[str:float], bayesian_update_strats: list[str], qf, k, d, quantization_type, quantization_rand_prunning_fraction) -> Tuple[ReplayBufferSamples, dict, dict]:
         """
         Get the transitions with highest linear score for different selection strategies
         """
@@ -790,7 +790,6 @@ class ReplayBuffer(BaseBuffer):
         dones = transitions.dones
         rewards = transitions.rewards
         logs = {}
-
         scores = torch.zeros(observations.shape[0], dtype=torch.float32)
         if "fatality" in bayesian_update_strats:
             fatal_scores, logs = self.fatal_scores(observations, qf, logs)
