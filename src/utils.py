@@ -35,6 +35,10 @@ MINIGRID_ENVS = [
     'MiniGrid-MultiSkill-N2-v0',
 ]
 
+CUSTOM_MINIGRID = [
+    'GridWorld-v0'
+]
+
 def make_env(env_params: typing.Dict[str, Any], seed: int, idx: int, capture_video: bool, run_name: str):
     """Helper function to create an environment with some standard wrappers."""
 
