@@ -202,6 +202,22 @@ class QNetworkBase(QNetwork):
         x = self.q(x)
         return x
 
+class QNetworkBaseMinigrid(QNetwork):
+    """Base Agent with no preprocessing"""
+
+    def __init__(self, env):
+        super().__init__(env)
+        n_input_channels = env.observation_space.shape[1]
+        self.fc1 = nn.Linear(n_input_channels, 32)
+        self.fc2 = nn.Linear(32, 32)
+        self.q = nn.Linear(32,  self.n_actions)
+
+    def forward(self, x):
+        x = F.relu(self.fc1(x))
+        x = F.relu(self.fc2(x))
+        x = self.q(x)
+        return x
+
 
 def linear_schedule(start_e: float, end_e: float, duration: float, t: int):
     slope = (end_e - start_e) / duration
